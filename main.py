@@ -28,12 +28,12 @@ class JukeBoxApp:
         # Initialize components with separate SPI buses
         self.display = Display(self.spi_display, dc_pin=2, reset_pin=12, cs_pin=15)
         self.nfc = NFCReader(self.spi_nfc, rst_pin=4, cs_pin=5)
-        self.api = MediaPlayerAPI(host="192.168.68.111", port=8000)
+        self.api = MediaPlayerAPI(host="192.168.68.102", port=8001)
         self.buttons = ButtonController()
         
         # WebSocket client (library-based)
         self.ws = AsyncWebsocketClient(5)  # socket_delay_ms as positional argument
-        self.server_url = "ws://192.168.68.104:8000/ws/mediaplayer/status-minimal"
+        self.server_url = "ws://192.168.68.102:8001/ws/mediaplayer/status-minimal"
         
         # Polling configuration (fallback if WebSocket disconnects)
         self.last_rest_poll = 0
@@ -67,6 +67,9 @@ class JukeBoxApp:
             await asyncio.sleep_ms(100)
         
         print(f"LOG: Connected IP: {wlan.ifconfig()[0]}")
+        self.display.show_status("WiFi Connected!", wlan.ifconfig()[0], st7735.TFT.GREEN)
+        self.display.set_connection_status("wifi_only")  # WiFi connected but no WS yet
+        await asyncio.sleep(1.5)  # Brief feedback before proceeding
         self.display.show_status("READY", "Connecting WS...", st7735.TFT.GREEN)
         
         # Initial REST poll before connecting to WebSocket
@@ -108,6 +111,7 @@ class JukeBoxApp:
                 
                 # Connection closed, prepare to reconnect
                 print("LOG: [RECONNECT] WebSocket connection lost")
+                self.display.set_connection_status("wifi_only")  # Back to WiFi only
                 
             except KeyboardInterrupt:
                 # Allow keyboard interrupt to propagate
@@ -134,8 +138,12 @@ class JukeBoxApp:
             if msg_type == "current_track":
                 # Payload has nested structure: {"current_track": {...}, "status": "...", "volume": ...}
                 track_data = payload.get("current_track", {})
-                title = track_data.get("title")
+                title = track_data.get("title", "")
                 print(f"LOG: Track update - {title}")
+                # Show brief status before updating display
+                if title:
+                    self.display.show_status("Now Playing", title[:30], st7735.TFT.GREEN)
+                    await asyncio.sleep(0.8)  # Brief feedback
                 # Create track_info dict matching API response format
                 track_info = {
                     "title": track_data.get("title", ""),
@@ -146,8 +154,11 @@ class JukeBoxApp:
                 }
                 self.display.update_track(track_info)
             elif msg_type == "volume_changed":
-                self.display.update_volume(payload.get("volume", 0))
-                print(f"LOG: Volume update - {payload.get('volume')}")
+                volume = payload.get("volume", 0)
+                self.display.show_status("Volume", f"{volume}%", st7735.TFT.YELLOW)
+                await asyncio.sleep(0.5)  # Brief feedback
+                self.display.update_volume(volume)
+                print(f"LOG: Volume update - {volume}")
             elif msg_type == "ping":
                 pass
                 #print(f"LOG: [PING] Received heartbeat from server")
@@ -166,6 +177,9 @@ class JukeBoxApp:
                 print(f"LOG: [CONNECT] Attempting connection (attempt {attempt + 1}/{max_attempts})")
                 if await self.ws.handshake(self.server_url):
                     print(f"LOG: [CONNECT] WebSocket connected successfully")
+                    self.display.show_status("Connected!", "WS Ready", st7735.TFT.GREEN)
+                    self.display.set_connection_status("websocket")  # Full connection
+                    await asyncio.sleep(1)  # Brief feedback
                     return
             except Exception as e:
                 print(f"LOG: [CONNECT] Attempt {attempt + 1} failed: {e}")
@@ -207,6 +221,8 @@ class JukeBoxApp:
             # The NFC reader has built-in timeout protection now
             album_id = self.nfc.read_album_id()
             if album_id:
+                self.display.show_status("Card Detected!", "Reading...", st7735.TFT.CYAN)
+                await asyncio.sleep(0.6)  # Brief feedback
                 await self._handle_card_scanned(album_id)
                 await asyncio.sleep(2)  # Debounce after successful read
         except KeyboardInterrupt:
@@ -257,18 +273,28 @@ class JukeBoxApp:
         print(f"LOG: Button pressed: {button}")
         
         success = False
+        status_msg = ""
+        
         if button == "play_pause":
             success = self.api.play_pause()
+            status_msg = "Play/Pause"
         elif button == "next":
             success = self.api.next_track()
+            status_msg = "Next Track"
         elif button == "prev":
             success = self.api.previous_track()
+            status_msg = "Previous Track"
         elif button == "stop":
             success = self.api.stop()
+            status_msg = "Stopped"
         
         if success:
+            self.display.show_status(status_msg, "", st7735.TFT.CYAN)
+            await asyncio.sleep(0.5)  # Brief feedback
             print(f"LOG: {button} command sent successfully")
         else:
+            self.display.show_status(status_msg, "Failed", st7735.TFT.RED)
+            await asyncio.sleep(1)  # Longer feedback for error
             print(f"LOG: {button} command failed")
 
     async def _handle_card_scanned(self, album_id):

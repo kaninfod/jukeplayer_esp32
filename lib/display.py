@@ -30,6 +30,9 @@ class Display:
         self.current_track = {"title": "", "album": "", "artist": ""}
         self.current_status = ""
         self.current_volume = 0
+        
+        # Connection status: "disconnected", "wifi_only", "websocket"
+        self.connection_status = "disconnected"
     
     def update_track(self, track_info):
         """Update display with track information.
@@ -59,53 +62,32 @@ class Display:
         """Internal method to render track display with current state."""
         self.tft.fill(st7735.TFT.BLACK)
         
-        # Title
-        self.tft.text((5, 5), str(self.current_track["title"])[:35], st7735.TFT.YELLOW, self.font, 1)
+        # Check if there's actual track info to display
+        if not self.current_track["title"]:
+            # Nothing is playing - show idle message
+            self.tft.text((5, 30), "Nothing playing!", st7735.TFT.YELLOW, self.font, 1)
+        else:
+            # Render full track display
+            # Title
+            self.tft.text((5, 30), str(self.current_track["title"])[:35], st7735.TFT.YELLOW, self.font, 1)
+            
+            # Album and artist
+            self.tft.text((5, 65), str(self.current_track["album"])[:35], st7735.TFT.WHITE, self.font, 1)
+            self.tft.text((5, 85), str(self.current_track["artist"])[:35], st7735.TFT.WHITE, self.font, 1)
+            
+            # Status on left, volume on right, same line
+            status_text = self.current_status.upper()[:8] if self.current_status else "UNKNOWN"
+            vol_text = f"VOL:{self.current_volume}%"
+            self.tft.text((5, 115), status_text, st7735.TFT.CYAN, self.font, 1)
+            self.tft.text((110, 115), vol_text, st7735.TFT.CYAN, self.font, 1)
+            
+            # Time display
+            t = time.gmtime()
+            formatted_time = f"{t[3]:02d}:{t[4]:02d}:{t[5]:02d}"
+            #self.tft.text((5, 90), formatted_time, st7735.TFT.CYAN, self.font, 1)
         
-        # Album and artist
-        self.tft.text((5, 25), str(self.current_track["album"])[:35], st7735.TFT.WHITE, self.font, 1)
-        self.tft.text((5, 45), str(self.current_track["artist"])[:35], st7735.TFT.WHITE, self.font, 1)
-        
-        # Status on left, volume on right, same line
-        status_text = self.current_status.upper()[:8] if self.current_status else "UNKNOWN"
-        vol_text = f"VOL:{self.current_volume}%"
-        self.tft.text((5, 70), status_text, st7735.TFT.CYAN, self.font, 1)
-        self.tft.text((95, 70), vol_text, st7735.TFT.CYAN, self.font, 1)
-        
-        # Time display
-        t = time.gmtime()
-        formatted_time = f"{t[3]:02d}:{t[4]:02d}:{t[5]:02d}"
-        self.tft.text((5, 90), formatted_time, st7735.TFT.CYAN, self.font, 1)
-        
-        # Album and artist
-        self.tft.text((5, 25), str(self.current_track["album"])[:35], st7735.TFT.WHITE, self.font, 1)
-        self.tft.text((5, 45), str(self.current_track["artist"])[:35], st7735.TFT.WHITE, self.font, 1)
-        
-        # Status on left, volume on right, same line
-        status_text = self.current_status.upper()[:8] if self.current_status else "UNKNOWN"
-        vol_text = f"VOL:{self.current_volume}%"
-        self.tft.text((5, 70), status_text, st7735.TFT.CYAN, self.font, 1)
-        self.tft.text((95, 70), vol_text, st7735.TFT.CYAN, self.font, 1)
-        
-        # Time display
-        t = time.gmtime()
-        formatted_time = f"{t[3]:02d}:{t[4]:02d}:{t[5]:02d}"
-        self.tft.text((5, 90), formatted_time, st7735.TFT.CYAN, self.font, 1)
-        
-        # Album and artist
-        self.tft.text((5, 25), str(self.current_track["album"])[:35], st7735.TFT.WHITE, self.font, 1)
-        self.tft.text((5, 45), str(self.current_track["artist"])[:35], st7735.TFT.WHITE, self.font, 1)
-        
-        # Status on left, volume on right, same line
-        status_text = self.current_status.upper()[:8] if self.current_status else "UNKNOWN"
-        vol_text = f"VOL:{self.current_volume}%"
-        self.tft.text((5, 70), status_text, st7735.TFT.CYAN, self.font, 1)
-        self.tft.text((95, 70), vol_text, st7735.TFT.CYAN, self.font, 1)
-        
-        # Time display
-        t = time.gmtime()
-        formatted_time = f"{t[3]:02d}:{t[4]:02d}:{t[5]:02d}"
-        self.tft.text((5, 90), formatted_time, st7735.TFT.CYAN, self.font, 1)
+        # Draw connection status dot at top right
+        self._draw_status_dot()
     
     def update(self, title, album="", artist="", status="", volume=0, color=st7735.TFT.YELLOW):
         """DEPRECATED: Update display with track info and playback status.
@@ -128,9 +110,38 @@ class Display:
             "volume": volume
         })
     
+    def set_connection_status(self, status):
+        """Set the connection status for the indicator dot.
+        
+        Args:
+            status: One of "disconnected", "wifi_only", or "websocket"
+        """
+        self.connection_status = status
+        # Trigger a redraw if we're currently showing track or idle
+        self._render_track()
+    
+    def _draw_status_dot(self):
+        """Draw connection status indicator at top right corner."""
+        # Determine color and label based on connection status
+        if self.connection_status == "websocket":
+            color = st7735.TFT.GREEN
+            label = "W"  # WebSocket connected
+        elif self.connection_status == "wifi_only":
+            color = st7735.TFT.YELLOW
+            label = "F"  # WiFi only
+        else:  # disconnected
+            color = st7735.TFT.RED
+            label = "X"  # Disconnected
+        
+        # Draw status indicator as text at top right corner (position where it's visible)
+        # Display is ~160 wide, so position at x=150 should be visible on the right
+        self.tft.text((148, 2), label, color, self.font, 1)
+    
     def show_status(self, status_msg, details="", color=st7735.TFT.YELLOW):
         """Show a status message (e.g., connecting, error)."""
         self.tft.fill(st7735.TFT.BLACK)
         self.tft.text((5, 10), "JUKEBOX", st7735.TFT.GRAY, self.font, 1)
         self.tft.text((5, 30), str(status_msg)[:35], color, self.font, 1)
         self.tft.text((5, 50), str(details)[:35], st7735.TFT.WHITE, self.font, 1)
+        # Draw connection status dot
+        self._draw_status_dot()

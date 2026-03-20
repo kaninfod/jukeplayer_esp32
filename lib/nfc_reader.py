@@ -93,6 +93,7 @@ class NFCReader:
             
             print(f"LOG: UID detected: {[hex(x) for x in raw_uid]}")
             
+
             elapsed = time.ticks_diff(time.ticks_ms(), start_time)
             if elapsed > self.timeout_ms:
                 print(f"LOG: NFC read timeout at auth")
