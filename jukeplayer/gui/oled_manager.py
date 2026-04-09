@@ -119,13 +119,21 @@ class OLEDScroller:
             
             # Draw Status Bar (Top)
             net_icon = self._get_net_icon()
-            self.test_writer.set_textpos(self.display, 0, 0)
-            self.test_writer.printstring(net_icon)
+            if net_icon:
+                self.test_writer.set_textpos(self.display, 0, 0)
+                self.test_writer.printstring(net_icon)
             
             player_icon = self._get_player_icon()
-            player_len = self.test_writer.stringlen(player_icon)
-            self.test_writer.set_textpos(self.display, 0, self.width - player_len)
-            self.test_writer.printstring(player_icon)
+            if player_icon:
+                player_len = self.test_writer.stringlen(player_icon)
+                # Ensure we don't try to draw outside the screen (col >= width)
+                # If player_len is 0 somehow, width - 0 is width, which is out of bounds
+                if player_len > 0:
+                    start_x = self.width - player_len
+                    # Clip it just in case
+                    start_x = min(start_x, self.width - 1)
+                    self.test_writer.set_textpos(self.display, 0, start_x)
+                    self.test_writer.printstring(player_icon)
             
             # Separator Line
             self.display.hline(0, 14, self.width, 1)
