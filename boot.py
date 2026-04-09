@@ -63,13 +63,15 @@ def boot_sequence():
         try:
             import webrepl
             pw = webrepl_cfg.get("password", "jukeplayer_repl")
-            # WebREPL expects password in webrepl_cfg.py
-            with open("webrepl_cfg.py", "w") as f:
-                f.write(f"PASS = '{pw}'\n")
-            webrepl.start()
+            # In modern MicroPython, setting the password explicitly works again, 
+            # and writing webrepl_cfg.py directly might cause reload loops if it gets compiled.
+            webrepl.start(password=pw)
             log.info("WebREPL started successfully.")
         except ImportError:
             log.error("WebREPL module not found. Skipping.")
+        except ValueError as e:
+            # ValueError often means it's already started or bound
+            log.info(f"WebREPL already running or failed to bind: {repr(e)}")
         except Exception as e:
             log.error(f"Failed to start WebREPL: {repr(e)}")
 
