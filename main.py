@@ -13,5 +13,6 @@ def start_app():
     except Exception as e:
         log.error(f"Application crashed: {e}")
 
-if __name__ == "__main__":
-    start_app()
+# This allows typing 'import main' or just hitting Run in Thonny 
+# without needing to explicitly call start_app() manually.
+start_app()
