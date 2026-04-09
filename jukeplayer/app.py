@@ -9,7 +9,6 @@ from jukeplayer.lib.nfc_reader import NFCReader
 from jukeplayer.lib.input_controller import InputController
 from jukeplayer.lib.ky_040 import KY040Controller
 from jukeplayer.lib.ws_events import AsyncWebsocketClient
-from jukeplayer.lib.http_audio_stream import HttpAudioStreamHandler
 from jukeplayer.gui.oled_manager import OLEDScroller
 
 __version__ = "FILESYSTEM_v1"  # Change to "FILESYSTEM_v1" in your device copy
@@ -59,7 +58,6 @@ class JukeBoxApp:
         # Extract pin configs
         display_cfg = self.config.get("oled", {})
         nfc_cfg = self.config.get("nfc_reader", {})
-        vs1053_cfg = self.config.get("vs1053", {})
         encoder_cfg = self.config.get("encoder", {})
         buttons_cfg = self.config.get("buttons", {})
         input_cfg = self.config.get("input", {})
@@ -119,45 +117,6 @@ class JukeBoxApp:
         # NFC encoding state (used to suppress normal reads during encoding)
         self.nfc_encoding_album_id = None  # Set when encoding mode is active
         
-        # VS1053 Hardware Initialization
-        self.hardware_vs1053 = None
-        if False and not self.dummy_mode and vs1053_cfg: # Disabled while testing on new board
-            log.info("Initializing VS1053 Decoder...")
-            try:
-                # Requires Peter Hinch's micropython-vs1053 driver installed on ESP32
-                from jukeplayer.lib.vs1053 import VS1053
-                
-                # VS1053 uses SPI bus hardware unit 2 (HSPI/VSPI)
-                spi_vs = SPI(vs1053_cfg.get("spi_unit", 2),
-                             baudrate=vs1053_cfg.get("baudrate", 2000000),
-                             sck=Pin(vs1053_cfg.get("sck", 14)),
-                             mosi=Pin(vs1053_cfg.get("mosi", 13)),
-                             miso=Pin(vs1053_cfg.get("miso", 12)))
-                
-                reset_pin = None
-                if vs1053_cfg.get("reset", -1) != -1:
-                    reset_pin = Pin(vs1053_cfg["reset"], Pin.OUT)
-                else:
-                    # Provide a dummy callable for reset if not physically wired
-                    reset_pin = lambda x: None
-                
-                self.hardware_vs1053 = VS1053(
-                    spi_vs,
-                    reset=reset_pin,
-                    dreq=Pin(vs1053_cfg.get("dreq", 0), Pin.IN),
-                    xdcs=Pin(vs1053_cfg.get("xdcs", 2), Pin.OUT),
-                    xcs=Pin(vs1053_cfg.get("xcs", 15), Pin.OUT)
-                )
-                log.info("VS1053 Decoder initialized successfully!")
-            except ImportError:
-                log.info("WARNING - VS1053 driver (vs1053.py) not found. Falling back to stdout mock.")
-            except Exception as e:
-                log.info(f"WARNING - VS1053 hardware init failed: {e}")
-
-        # Audio streaming handler (HTTP direct streaming proxying VS1053)
-        # Pass the control WebSocket to send 'track_finished' when hardware indicates EOF.
-        self.audio_handler = HttpAudioStreamHandler(self.config, control_ws=self.ws, hardware_vs1053=self.hardware_vs1053)
-        
         # Memory monitoring (log every 30 seconds)
         self.last_memory_log = 0
         self.memory_log_interval = 30000  # Log memory every 30 seconds
@@ -173,10 +132,9 @@ class JukeBoxApp:
         import gc
         gc.collect()  # Free memory before API call
         
-        # Main event loop - run WebSocket, audio stream, and input handling concurrently
+        # Main event loop - run WebSocket and input handling concurrently
         await asyncio.gather(
             self._websocket_loop(),
-            self.audio_handler.stream_loop(),
             self._nfc_loop()
         )
 
@@ -242,7 +200,7 @@ class JukeBoxApp:
                 
                 # Apply initial volume if present
                 if "volume" in payload:
-                    self._apply_hardware_volume(payload["volume"])
+                    log.info(f"Initial volume: {payload['volume']}")
                 
                 log.info(f"Track update - {title} (status: {status}, backend: {target_backend}, target_id: {active_client})")
                 
@@ -252,25 +210,21 @@ class JukeBoxApp:
                     # Valid play state: have a track and asked to play
                     if target_backend == "chromecast":
                         log.info("Ignoring audio stream - playback_backend is chromecast")
-                        self.audio_handler.set_state("idle")
                     elif active_client is not None and active_client != self.client_id:
                         log.info(f"Ignoring audio stream - we are not the active client (target: {active_client}, self: {self.client_id})")
-                        self.audio_handler.set_state("idle")
                     else:
-                        self.audio_handler.set_state("play")
+                        pass
                 elif status == "playing" and not track_data:
                     # Backend says playing but no track - treat as stopped
                     log.info(f"Track update - ignoring play state with no track")
-                    self.audio_handler.set_state("idle")
                 elif status == "paused":
-                    self.audio_handler.set_state("paused")
+                    pass
                 elif status == "stopped" or status == "idle":
                     # Both "stopped" and "idle" mean: stop audio stream
-                    self.audio_handler.set_state("idle")
+                    pass
                 else:
                     # Unknown status - default to idle to be safe
                     log.info(f"Track update - unknown status '{status}', defaulting to idle")
-                    self.audio_handler.set_state("idle")
                 
                 # Create track_info dict matching API response format
                 track_info = {
@@ -304,7 +258,6 @@ class JukeBoxApp:
                 volume = payload.get("volume", 0)
                 # self.display.update_volume(volume)  # TODO: Remove old display logic
                 log.info(f"Volume update - {volume}")
-                self._apply_hardware_volume(volume)
             elif msg_type == "ping":
                 pass
             elif msg_type == "notification":
@@ -543,27 +496,6 @@ class JukeBoxApp:
         finally:
             gc.collect()
 
-    def _apply_hardware_volume(self, volume_percent):
-        """Map 0-100% volume to VS1053 dB attenuation scale."""
-        if not self.hardware_vs1053:
-            return
-            
-        try:
-            vol_int = int(volume_percent)
-            if vol_int <= 0:
-                self.hardware_vs1053.volume(0, 0, powerdown=True)
-                log.info("Hardware volume: MUTE")
-            else:
-                # 100% -> 0 dB attenuation.
-                # Peter Hinch driver expects passing negative values of attenuation, e.g. -6 for -6dB.
-                # Let's map vol_int (1-100) to approx -60 to 0. 100 is 0. 50 is -30.
-                attenuation_db = -60 + (vol_int * 0.6)
-                # Do not exceed 0.
-                attenuation_db = min(0, attenuation_db)
-                self.hardware_vs1053.volume(attenuation_db, attenuation_db, powerdown=False)
-                # log.info(f"Hardware volume set to {attenuation_db:.1f} dB")
-        except Exception as e:
-            log.info(f"Failed to set hardware volume: {e}")
 
     async def _handle_volume_change(self, volume):
         """Handle potentiometer volume change - send via WebSocket immediately."""
@@ -606,9 +538,7 @@ class JukeBoxApp:
     async def _handle_button_press(self, button):
         """Handle button press by sending command via WebSocket.
         
-        For play/pause/stop: immediately update audio state (don't wait for backend).
-        For next/prev: immediately transition to idle state (track is changing).
-        Then send control command via WebSocket /events endpoint.
+        Send control command via WebSocket /events endpoint.
         """
         log.info(f"Button pressed: {button}")
         
@@ -616,14 +546,6 @@ class JukeBoxApp:
         success = False
         
         if button == "play_pause" or button == "ky040_push":
-            # Pause if currently in play state, play if paused
-            if self.audio_handler.state == "play":
-                self.audio_handler.set_state("paused")
-                log.info(f"Audio paused immediately (awaiting backend confirmation)")
-            elif self.audio_handler.state == "paused":
-                self.audio_handler.set_state("play")
-                log.info(f"Audio resumed immediately (awaiting backend confirmation)")
-            
             # Send command via WebSocket
             msg = {
                 "type": "play_pause",
@@ -638,9 +560,6 @@ class JukeBoxApp:
         
         elif button == "next":
             # Track changing: set idle, backend will send new track with state
-            self.audio_handler.set_state("idle")
-            log.info(f"Transitioning to next track (audio stopped immediately)")
-            
             msg = {
                 "type": "next_track",
                 "payload": {}
@@ -654,9 +573,6 @@ class JukeBoxApp:
         
         elif button == "prev":
             # Track changing: set idle, backend will send new track with state
-            self.audio_handler.set_state("idle")
-            log.info(f"Transitioning to previous track (audio stopped immediately)")
-            
             msg = {
                 "type": "previous_track",
                 "payload": {}
@@ -669,9 +585,6 @@ class JukeBoxApp:
                 success = False
         
         elif button == "stop":
-            self.audio_handler.set_state("idle")
-            log.info(f"Audio stopped immediately (awaiting backend confirmation)")
-            
             msg = {
                 "type": "stop",
                 "payload": {}
