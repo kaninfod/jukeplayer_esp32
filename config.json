@@ -21,7 +21,7 @@
   },
   "webrepl": {
     "enabled": true,
-    "password": "jukeplayer_repl"
+    "password": "jukeplay"
   },
   "dummy_mode": false,
   "oled": {

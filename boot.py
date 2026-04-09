@@ -61,7 +61,12 @@ def boot_sequence():
     webrepl_cfg = config.get("webrepl", {})
     if webrepl_cfg.get("enabled"):
         try:
-            pw = webrepl_cfg.get("password", "jukeplayer_repl")
+            pw = webrepl_cfg.get("password", "jukeplay")
+            # Max password length for WebREPL is 9 characters! 
+            if len(pw) > 9:
+                pw = pw[:9]
+                log.info(f"WebREPL password truncated to 9 chars: {pw}")
+                
             with open("webrepl_cfg.py", "w") as f:
                 f.write(f"PASS = '{pw}'\n")
                 
