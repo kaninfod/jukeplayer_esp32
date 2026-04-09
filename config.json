@@ -19,6 +19,10 @@
   "server": {
     "timeout_ms": 5000
   },
+  "webrepl": {
+    "enabled": true,
+    "password": "jukeplayer_repl"
+  },
   "dummy_mode": false,
   "oled": {
     "sda": 32,

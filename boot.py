@@ -57,6 +57,19 @@ def boot_sequence():
     log.info("Attempting NTP time sync...")
     log.sync_time()
 
+    # 3. Start WebREPL if enabled
+    webrepl_cfg = config.get("webrepl", {})
+    if webrepl_cfg.get("enabled"):
+        try:
+            import webrepl
+            pw = webrepl_cfg.get("password", "jukeplayer")
+            webrepl.start(password=pw)
+            log.info("WebREPL started successfully.")
+        except ImportError:
+            log.error("WebREPL module not found. Skipping.")
+        except Exception as e:
+            log.error(f"Failed to start WebREPL: {e}")
+
     # Pass the config to main via a global or file 
     # (or let main load it again, it's fast enough)
     log.info("Boot Sequence Complete. Yielding to main.py...")
