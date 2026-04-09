@@ -1,9 +1,0 @@
-# MicroPython ESP32
-micropython
-
-# HTTP/WebSocket (MicroPython builds these in or use libraries)
-urequests
-websocket-client
-
-# Configuration
-python-dotenv>=0.21.0

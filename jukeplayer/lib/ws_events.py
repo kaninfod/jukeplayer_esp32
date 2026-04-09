@@ -26,7 +26,7 @@ CLOSE_TOO_BIG = const(1009)
 CLOSE_MISSING_EXTN = const(1010)
 CLOSE_BAD_CONDITION = const(1011)
 
-URL_RE = re.compile(r'(wss|ws)://([A-Za-z0-9-\.]+)(?:\:([0-9]+))?(/.+)?')
+URL_RE = re.compile(r'(wss|ws)://([A-Za-z0-9-\.]+)(?:\:([0-9]+))?(/[^\s]*)?')
 URI = namedtuple('URI', ('protocol', 'hostname', 'port', 'path'))
 
 class AsyncWebsocketClient:
@@ -78,26 +78,62 @@ class AsyncWebsocketClient:
         if size == 0:
             return b''
         chunks = []
-
-        while True:
-            b = self.sock.read(size) # type: ignore
-            await a.sleep_ms(self.delay_read) # type: ignore
-
-            # Continue reading if the socket returns None
-            if b is None: continue
-
-            # In some cases, the socket will return an empty bytes
-            # after PING or PONG frames, we need to ignore them.
-            if len(b) == 0: break
-
-            chunks.append(b)
-            size -= len(b) # type: ignore
-
-            # After reading the first chunk, we can break if size is None or 0
-            if size is None or size == 0: break
-
-        # Join all the chunks and return them
-        return b''.join(chunks)
+        bytes_read = 0
+        
+        # On ESP32, socket buffer is limited
+        if size is None:
+            # For header reads (size=None), read first available chunk
+            # Don't timeout quickly - server might be sending soon
+            for attempt in range(40):  # ~200ms total
+                try:
+                    b = self.sock.read(128)
+                    if b is not None and len(b) > 0:
+                        return b
+                    await a.sleep_ms(self.delay_read)
+                except OSError:
+                    await a.sleep_ms(self.delay_read)
+            return b''
+        
+        # For sized reads: MUST get exactly 'size' bytes OR error
+        # Never return partial data - that breaks struct.unpack()
+        max_chunk = 256
+        max_total_retries = 200  # ~1000ms total timeout for full data
+        retry_count = 0
+        
+        while bytes_read < size:
+            try:
+                remaining = size - bytes_read
+                read_size = min(remaining, max_chunk)
+                
+                b = self.sock.read(read_size)
+                
+                # No data available right now
+                if b is None:
+                    retry_count += 1
+                    if retry_count > max_total_retries:
+                        # Timeout - ALWAYS raise error, never return incomplete data
+                        raise OSError(f"Timeout: got {bytes_read}/{size} bytes, need all {size}")
+                    await a.sleep_ms(self.delay_read)
+                    continue
+                
+                # Reset retry counter on data
+                retry_count = 0
+                
+                # Got some data
+                if len(b) > 0:
+                    chunks.append(b)
+                    bytes_read += len(b)
+                else:
+                    # Empty read = socket closed or connection issue
+                    raise OSError(f"Socket closed: got {bytes_read}/{size} bytes")
+                
+            except OSError as e:
+                # Socket error - always propagate
+                raise
+        
+        # After while loop exits normally, we have all 'size' bytes
+        data = b''.join(chunks)
+        return data
 
     async def handshake(self, uri, headers=[], keyfile=None, certfile=None, cafile=None, cert_reqs=0):
         if self.sock:
@@ -208,36 +244,125 @@ class AsyncWebsocketClient:
         # Byte 2: MASK(1) LENGTH(7)
         byte2 = 0x80 if mask else 0
 
+        # Build header
         if length < 126:  # 126 is magic value to use 2-byte length header
             byte2 |= length
-            self.sock.write(struct.pack('!BB', byte1, byte2))
+            header = struct.pack('!BB', byte1, byte2)
 
         elif length < (1 << 16):  # Length fits in 2-bytes
             byte2 |= 126  # Magic code
-            self.sock.write(struct.pack('!BBH', byte1, byte2, length))
+            header = struct.pack('!BBH', byte1, byte2, length)
 
         elif length < (1 << 64):
             byte2 |= 127  # Magic code
-            self.sock.write(struct.pack('!BBQ', byte1, byte2, length))
-
+            header = struct.pack('!BBQ', byte1, byte2, length)
         else:
             raise ValueError()
 
+        # Send header (with retry on partial writes)
+        try:
+            self._write_all(header)
+        except OSError:
+            # Header failed to send
+            raise
+
         if mask:  # Mask is 4 bytes
             mask_bits = struct.pack('!I', r.getrandbits(32))
-            self.sock.write(mask_bits)
+            try:
+                self._write_all(mask_bits)
+            except OSError:
+                # Mask failed to send
+                raise
             data = bytes(b ^ mask_bits[i % 4]
                          for i, b in enumerate(data))
 
-        self.sock.write(data)
+        # Send data (with retry on partial writes)
+        try:
+            self._write_all(data)
+        except OSError:
+            # Data failed to send
+            raise
+    
+    def _write_all(self, data):
+        """Write all data to socket. For small frames like ACK messages."""
+        if not data:
+            return  # Nothing to write
+        
+        if self.sock is None:
+            raise OSError("Socket is None")
+        
+        # Ensure data is bytes
+        if isinstance(data, str):
+            data = data.encode('utf-8')
+        
+        # ESP32: For small frames (< 256 bytes), try to write with retries
+        # Track individual write results for diagnostics
+        offset = 0
+        total_attempts = 0
+        zero_writes = 0
+        os_errors = 0
+        
+        for attempt in range(15):  # 15 attempts
+            try:
+                remaining = data[offset:]
+                if not remaining:
+                    return  # All data written successfully
+                
+                written = self.sock.write(remaining)
+                total_attempts += 1
+                
+                if written is None:
+                    written = 0
+                    zero_writes += 1
+                elif written > 0:
+                    offset += written
+                else:
+                    zero_writes += 1
+                    
+            except OSError as e:
+                os_errors += 1
+                # OSError on write - might be EAGAIN or buffer full
+                total_attempts += 1
+                # Continue to retry
+            
+            if offset >= len(data):
+                return  # Success
+            
+            # Backoff before retrying to let the socket buffer clear
+            import time
+            time.sleep_ms(10)
+        
+        # Failed after all retries - provide diagnostics
+        error_msg = f"Failed to send {len(data) - offset}/{len(data)} bytes (attempts={total_attempts}, zero_writes={zero_writes}, os_errors={os_errors})"
+        raise OSError(error_msg)
 
     async def recv(self):
+        frame_error_count = 0
+        max_retries = 10  # Increase retries for transient issues
+        
         while await self.open():
             try:
                 fin, opcode, data = await self.read_frame()
-            # except (ValueError, EOFError) as ex:
+                frame_error_count = 0  # Reset on success
+                
+            except (OSError, ValueError) as ex:
+                # Frame reading errors: these might be transient on ESP32
+                frame_error_count += 1
+                error_msg = str(ex)
+                
+                if "buffer too small" in error_msg or "timeout" in error_msg.lower():
+                    # Transient socket/timing issue
+                    if frame_error_count <= max_retries:
+                        await a.sleep_ms(100)  # Longer wait on transient error
+                        continue
+                
+                # Too many errors or unrecognized error
+                print(f'Frame read error (giving up after {frame_error_count} retries): {ex}')
+                await self.open(False)
+                return
+                
             except Exception as ex:
-                print('Exception in recv while reading frame:', ex)
+                print(f'Exception in recv while reading frame: {ex}')
                 await self.open(False)
                 return
 
@@ -282,4 +407,13 @@ class AsyncWebsocketClient:
             opcode = OP_BYTES
         else:
             raise TypeError()
-        self.write_frame(opcode, buf)
+        
+        # On ESP32, yield to event loop before writing
+        await a.sleep_ms(0)
+        
+        # Call write_frame which might raise OSError if socket write fails
+        try:
+            self.write_frame(opcode, buf)
+        except OSError as e:
+            # Socket write failed - propagate to caller
+            raise
