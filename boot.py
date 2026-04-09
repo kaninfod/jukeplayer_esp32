@@ -62,11 +62,12 @@ def boot_sequence():
     if webrepl_cfg.get("enabled"):
         try:
             pw = webrepl_cfg.get("password", "jukeplayer_repl")
-            # WebREPL expects password in webrepl_cfg.py
-            # We must write this BEFORE importing webrepl, as webrepl.start() 
-            # will try to import webrepl_cfg and throw a ValueError if PASS is missing
             with open("webrepl_cfg.py", "w") as f:
                 f.write(f"PASS = '{pw}'\n")
+                
+            # If webrepl_cfg got cached as missing, we clear it so it reloads the file
+            if "webrepl_cfg" in sys.modules:
+                del sys.modules["webrepl_cfg"]
                 
             import webrepl
             webrepl.start()
