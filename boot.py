@@ -62,13 +62,16 @@ def boot_sequence():
     if webrepl_cfg.get("enabled"):
         try:
             import webrepl
-            pw = webrepl_cfg.get("password", "jukeplayer")
-            webrepl.start(password=pw)
+            pw = webrepl_cfg.get("password", "jukeplayer_repl")
+            # WebREPL expects password in webrepl_cfg.py
+            with open("webrepl_cfg.py", "w") as f:
+                f.write(f"PASS = '{pw}'\n")
+            webrepl.start()
             log.info("WebREPL started successfully.")
         except ImportError:
             log.error("WebREPL module not found. Skipping.")
         except Exception as e:
-            log.error(f"Failed to start WebREPL: {e}")
+            log.error(f"Failed to start WebREPL: {repr(e)}")
 
     # Pass the config to main via a global or file 
     # (or let main load it again, it's fast enough)
