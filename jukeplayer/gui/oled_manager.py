@@ -1,7 +1,7 @@
 import asyncio
 import machine
 from jukeplayer.gui.core.writer import Writer
-from jukeplayer.gui.fonts import geistmonobold18, geistmonobold14
+from jukeplayer.gui.fonts import geistmonobold18, geistmonobold14, material_subset
 from machine import I2C, Pin
 import jukeplayer.drivers.ssd1306.ssd1306 as ssd1306
 
@@ -25,6 +25,9 @@ class OLEDScroller:
         
         self.status_writer = Writer(self.display, geistmonobold14, verbose=False)
         
+        self.test_writer = Writer(self.display, material_subset, verbose=False)
+        self.test = "TEST: 0123456789"
+
         self.current_text = "Idle..."
         self.text_width = self.writer.stringlen(self.current_text)
         
@@ -83,6 +86,28 @@ class OLEDScroller:
             self.scroll_x = 0  # Reset offset when text changes
             self._update_text_buffer()
 
+    def _get_player_icon(self):
+        """Map player status string to material subset icon."""
+        status = self.player_status.upper()
+        if status == "PLAY":
+            return "\ue037"
+        elif status == "STOP":
+            return "\ue047"
+        elif status == "PAUSE":
+            return "\ue034"
+        return "" # Empty or default if unknown
+
+    def _get_net_icon(self):
+        """Map network status string to material subset icon."""
+        status = self.net_status.upper()
+        if status == "WS:OK":
+            return "\ue308"
+        elif status == "WS:CON":
+            return "\ue63e"
+        elif status == "WS:ERR":
+            return "\ue648"
+        return "\ue648" # Default to no wifi
+
     async def _scroll_loop(self):
         """Background task for updating display frames."""
         y_pos = self.height - self.font.height() - 2 # Push scrolling text to bottom                                                                                        
@@ -93,15 +118,17 @@ class OLEDScroller:
             self.display.fill(0)
             
             # Draw Status Bar (Top)
-            self.status_writer.set_textpos(self.display, 0, 0)
-            self.status_writer.printstring(self.net_status)
+            net_icon = self._get_net_icon()
+            self.test_writer.set_textpos(self.display, 0, 0)
+            self.test_writer.printstring(net_icon)
             
-            player_len = self.status_writer.stringlen(self.player_status)
-            self.status_writer.set_textpos(self.display, 0, self.width - player_len)
-            self.status_writer.printstring(self.player_status)
+            player_icon = self._get_player_icon()
+            player_len = self.test_writer.stringlen(player_icon)
+            self.test_writer.set_textpos(self.display, 0, self.width - player_len)
+            self.test_writer.printstring(player_icon)
             
             # Separator Line
-            self.display.hline(0, 11, self.width, 1)
+            self.display.hline(0, 14, self.width, 1)
             
             if self.text_width <= self.width:
                 # Text fits completely, center it

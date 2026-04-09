@@ -236,7 +236,7 @@ class JukeBoxApp:
                 }
                 
                 # Update OLED Scroller if available
-                if self.oled and title:
+                if self.oled:
                     artist = track_info.get("artist", "Unknown")
                     album = track_info.get("album", "")
                     
