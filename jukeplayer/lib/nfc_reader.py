@@ -69,7 +69,7 @@ class NFCReader:
             try:
                 (stat, tag_type) = self.rdr.request(self.rdr.REQIDL)
             except Exception as e:
-                print(f"LOG: NFC request error (timeout): {e}")
+                print(f"LOG: ❌ NFC request error (timeout): {e}")
                 return None
             
             if stat != self.rdr.OK:
@@ -79,14 +79,14 @@ class NFCReader:
             # Check timeout after each operation
             elapsed = time.ticks_diff(time.ticks_ms(), start_time)
             if elapsed > self.timeout_ms:
-                print(f"LOG: NFC read timeout at anticoll check")
+                print(f"LOG: ❌ NFC read timeout at anticoll check")
                 return None
             
             # Card detected, proceed with full read
             try:
                 (stat, raw_uid) = self.rdr.anticoll()
             except Exception as e:
-                print(f"LOG: NFC anticoll error: {e}")
+                print(f"LOG: ❌ NFC anticoll error: {e}")
                 return None
             
             if stat != self.rdr.OK:
@@ -94,44 +94,44 @@ class NFCReader:
             
             elapsed = time.ticks_diff(time.ticks_ms(), start_time)
             if elapsed > self.timeout_ms:
-                print(f"LOG: NFC read timeout at select_tag")
+                print(f"LOG: ❌ NFC read timeout at select_tag")
                 return None
             
             try:
                 if self.rdr.select_tag(raw_uid) != self.rdr.OK:
                     return None
             except Exception as e:
-                print(f"LOG: NFC select_tag error: {e}")
+                print(f"LOG: ❌ NFC select_tag error: {e}")
                 return None
             
-            print(f"LOG: UID detected: {[hex(x) for x in raw_uid]}")
+            print(f"LOG: ✅ UID detected: {[hex(x) for x in raw_uid]}")
             
             elapsed = time.ticks_diff(time.ticks_ms(), start_time)
             if elapsed > self.timeout_ms:
-                print(f"LOG: NFC read timeout at auth")
+                print(f"LOG: ❌ NFC read timeout at auth")
                 return None
             
             # Authenticate with default Mifare Classic key
             try:
                 auth_stat = self.rdr.auth(self.rdr.AUTHENT1A, block, self.default_key, raw_uid)
             except Exception as e:
-                print(f"LOG: NFC auth error: {e}")
+                print(f"LOG: ❌ NFC auth error: {e}")
                 return None
             
             if auth_stat != self.rdr.OK:
-                print(f"LOG: Auth failed with status {auth_stat}")
+                print(f"LOG: ❌ Auth failed with status {auth_stat}")
                 return None
             
             elapsed = time.ticks_diff(time.ticks_ms(), start_time)
             if elapsed > self.timeout_ms:
-                print(f"LOG: NFC read timeout at block read")
+                print(f"LOG: ❌ NFC read timeout at block read")
                 return None
             
             # Read the block
             try:
                 raw_data = self.rdr.read(block)
             except Exception as e:
-                print(f"LOG: NFC read error: {e}")
+                print(f"LOG: ❌ NFC read error: {e}")
                 raw_data = None
             finally:
                 try:
@@ -142,11 +142,11 @@ class NFCReader:
             if not raw_data:
                 return None
             
-            print(f"LOG: Raw Bytes from Block {block}: {raw_data}")
+            print(f"LOG: ✅ Raw Bytes from Block {block}: {raw_data}")
             
             # Parse as ASCII string
             album_id = "".join([chr(x) for x in raw_data if 32 <= x <= 126]).strip()
-            print(f"LOG: Parsed Album ID: [{album_id}]")
+            print(f"LOG: ✅ Parsed Album ID: [{album_id}]")
             
             if album_id:
                 self.last_successful_read = time.ticks_ms()

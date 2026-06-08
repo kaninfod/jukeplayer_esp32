@@ -17,7 +17,7 @@ class InputController:
     NFC_CARD = "nfc_card"  # Microswitch
     KY040_PUSH = "ky040_push"  # KY-040 encoder pushbutton
     
-    def __init__(self, button_pins=None, microswitch_pin=17, encoder_sw_pin=33, debounce_ms=100, dummy_mode=False):
+    def __init__(self, button_pins=None,  debounce_ms=100, dummy_mode=False):  #microswitch_pin=17, encoder_sw_pin=33,
         """Initialize all inputs.
         
         Args:
@@ -62,25 +62,7 @@ class InputController:
             except Exception as e:
                 print(f"LOG: Failed to init input '{name}': {e}")
         
-        # Initialize microswitch
-        try:
-            ms_pin = Pin(microswitch_pin, Pin.IN, Pin.PULL_UP)
-            self.inputs['nfc_card'] = {'pin': ms_pin, 'type': 'microswitch'}
-            self.last_press_time['nfc_card'] = 0
-            self.last_state['nfc_card'] = 1  # 1 = not pressed (pull-up)
-            print(f"LOG: Microswitch initialized on GPIO {microswitch_pin}")
-        except Exception as e:
-            print(f"LOG: Failed to init microswitch: {e}")
-        
-        # Initialize KY-040 encoder pushbutton
-        try:
-            enc_pin = Pin(encoder_sw_pin, Pin.IN, Pin.PULL_UP)
-            self.inputs['ky040_push'] = {'pin': enc_pin, 'type': 'encoder_button'}
-            self.last_press_time['ky040_push'] = 0
-            self.last_state['ky040_push'] = 1  # 1 = not pressed (pull-up)
-            print(f"LOG: KY-040 encoder pushbutton initialized on GPIO {encoder_sw_pin}")
-        except Exception as e:
-            print(f"LOG: Failed to init encoder pushbutton: {e}")
+
     
     def check_inputs(self):
         """Check all inputs for presses (non-blocking).

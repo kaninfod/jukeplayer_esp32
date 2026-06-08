@@ -10,6 +10,16 @@ def connect(ssid, password, timeout_sec=30):
     wlan = network.WLAN(network.STA_IF)
     wlan.active(True)
     
+    # Disable WiFi power saving to prevent dropped WebSocket packets and ping timeouts
+    # This keeps the radio active instead of sleeping during DTIM beacon gaps.
+    try:
+        wlan.config(pm=0)
+    except ValueError:
+        try:
+            wlan.config(pm=network.WLAN.PM_NONE)
+        except (ValueError, AttributeError):
+            pass
+            
     if wlan.isconnected():
         log.info(f"Already connected to WiFi. IP: {wlan.ifconfig()[0]}")
         return wlan.ifconfig()[0]

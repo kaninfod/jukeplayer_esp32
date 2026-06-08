@@ -1,8 +1,7 @@
 {
   "client": {
-    "name": "ESP32_testrig",
-    "type": "esp32",
-    "device_id": "living_room"
+    "name": "ESP32 Testrig",
+    "type": "esp32"
   },
   "capabilities": [
     "nfc_reader",
@@ -27,8 +26,8 @@
   },
   "dummy_mode": false,
   "oled": {
-    "sda": 13,
-    "scl": 14,
+    "sda": 32,
+    "scl": 33,
     "width": 128,
     "height": 64
   },
@@ -45,19 +44,19 @@
   },
   "encoder": {
     "clk": 27,
-    "dt": 25,
-    "sw": 16
+    "dt": 16,
+    "sw": 34
   },
   "buttons": {
-    "play_pause": 33,
-    "next": 35,
-    "previous": 32,
-    "stop": 34,
-    "microswitch_nfc_card": 26,
-    "encoder_push": 16, 
+    "play_pause": 21,
+    "next": 22,
+    "previous": 25,
+    "stop": 26,
+    "microswitch_nfc_card": 17,
+    "encoder_push": 34, 
     "debounce_ms": 100
   },
   "input": {
-    "microswitch_nfc_card": 26
+    "microswitch_nfc_card": 17
   }
 }
