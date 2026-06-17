@@ -1,12 +1,15 @@
 from jukeplayer.lib.nfc_reader import NFCReader
 from jukeplayer.lib.input_controller import InputController
-from jukeplayer.lib.ky_040 import KY040Controller
+# from jukeplayer.lib.ky_040 import KY040Controller
+from jukeplayer.lib.rotary_irq_esp import RotaryIRQ
 from jukeplayer.lib.ws_events import AsyncWebsocketClient
 from jukeplayer.gui.oled_manager import OLEDScroller
 from jukeplayer.lib.ws_service import  WSService
 from jukeplayer.lib.hardware_bus import HardwareBus
 from jukeplayer.lib.hardware_service import HardwareService
+import asyncio
 
+import time
 __version__ = "FILESYSTEM_v1"  # Change to "FILESYSTEM_v1" in your device copy
 
 
@@ -97,10 +100,21 @@ class JukeBoxApp:
             debounce_ms=buttons_cfg.get('debounce_ms', 100),
             dummy_mode=self.dummy_mode)
         
-        self.encoder = KY040Controller(
-            clk_pin=encoder_cfg.get('clk', 27), 
-            dt_pin=encoder_cfg.get('dt', 16), 
-            dummy_mode=self.dummy_mode)
+        
+        self.encoder = RotaryIRQ(
+            pin_num_clk=25,
+            pin_num_dt=27,
+            min_val=0,
+            max_val=100,
+            incr=3,
+            reverse=False,
+            range_mode=RotaryIRQ.RANGE_BOUNDED
+        )
+        
+        self.encoder_event = asyncio.Event()
+        self.encoder.add_listener(self._hardware_callback)
+        self.target_volume = 0
+        self.debounce_task = None
         
         # WebSocket client (library-based)
         self.ws = AsyncWebsocketClient(5)  # socket_delay_ms as positional argument
@@ -114,6 +128,20 @@ class JukeBoxApp:
         # Memory monitoring (log every 30 seconds)
         self.last_memory_log = 0
         self.memory_log_interval = 30000  # Log memory every 30 seconds
+
+    def _hardware_callback(self):
+            self.encoder_event.set()
+
+
+
+    async def _set_volume_debounce_worker(self):
+        try:
+            await asyncio.sleep_ms(300)
+            hw_service = HardwareService(self)
+            await hw_service.handle_volume_change(self.target_volume)
+            log.info(f"Volume change sent to backend: {self.target_volume}%")
+        except asyncio.CancelledError:
+            pass
 
     async def run(self):
         """Main application loop using async pattern."""
@@ -184,6 +212,7 @@ class JukeBoxApp:
         """Handle button presses, microswitch, rotary encoder, and potentiometer input."""
         import time, asyncio
         hw_service = HardwareService(self)
+        
         while True:
             try:
                 # Check all inputs (buttons and microswitch)
@@ -194,17 +223,18 @@ class JukeBoxApp:
                     else:
                         await hw_service.handle_button_press(input_name)
                 
-                # Check if encoder volume changed (flag set by IRQ handler)
-                if self.encoder.volume_changed:
-                    # Update display immediately (local feedback)
-                    current_volume = self.encoder.get_value()
-                    log.info(f"Display updated to {current_volume}% (local encoder change)")
+                if self.encoder_event.is_set():
+                    self.encoder_event.clear() # Reset the flag
                     
-                    # Check if debounce window has elapsed to send API call
-                    if self.encoder.should_send_api_update(debounce_ms=300):
-                        self.encoder.volume_changed = False  # Clear flag after sending
-                        await hw_service.handle_volume_change(current_volume)
-                
+                    self.target_volume = self.encoder.value()
+                    if self.oled:
+                        self.oled.set_volume(self.target_volume)
+                        
+                    # Manage the 300ms API timer
+                    if self.debounce_task and not self.debounce_task.done():
+                        self.debounce_task.cancel()
+                    self.debounce_task = asyncio.create_task(self._set_volume_debounce_worker())
+
                 # Memory monitoring every 30 seconds
                 now = time.ticks_ms()
                 if time.ticks_diff(now, self.last_memory_log) >= self.memory_log_interval:
@@ -218,7 +248,7 @@ class JukeBoxApp:
                 # Allow keyboard interrupt to propagate
                 raise
             except Exception as e:
-                self.logger.info(f"Button/NFC/Encoder/Pot loop error: {e}")
+                self.logger.info(f"Hardware loop error: {e}")
                 await asyncio.sleep(1)
 
     def _log_memory_usage(self):
@@ -229,7 +259,7 @@ class JukeBoxApp:
             alloc = gc.mem_alloc()
             total = free + alloc
             used_pct = (alloc * 100) // total if total > 0 else 0
-            self.logger.info(f"[MEM] Free: {free} bytes | Alloc: {alloc} bytes | Total: {total} bytes | Used: {used_pct}%")
+            self.logger.info(f"[MEM] Free: {free} bytes | Used: {used_pct}% | Client ID: {self.client_id}")
         except Exception as e:
             self.logger.info(f"[MEM] Error reading memory: {e}")
 

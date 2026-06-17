@@ -41,41 +41,26 @@ class WSService:
 
 
     async def handle_current_track(self, payload):
-        # Payload has nested structure: {"current_track": {...}, "status": "...", "volume": ...}
+
         track_data = payload.get("current_track", {})
-        title = track_data.get("title")
-        status = payload.get("status", "")
-        target_backend = payload.get("playback_backend")
-        active_client = payload.get("active_client")
         repeat_status = payload.get("repeat_album", False)
+        volume = payload.get("volume", 0)
+        title = track_data.get("title", "")
+        album = track_data.get("album", "")
+        artist = track_data.get("artist", "")
+        status = payload.get("status", "")
         
         # Apply initial volume if present
-        if "volume" in payload:
-            self.app.logger.info(f"Initial volume: {payload['volume']}")
+        self.app.logger.info(f"Initial volume: {payload['volume']}")
+        self.app.encoder.set(value=volume)
         
-        self.app.logger.info(f"Track update - {title} (status: {status}, backend: {target_backend}, target_id: {active_client})")
-        
-        # Create track_info dict matching API response format
-        track_info = {
-            "title": track_data.get("title", ""),
-            "album": track_data.get("album", ""),
-            "artist": track_data.get("artist", ""),
-            "status": payload.get("status", ""),
-            "volume": payload.get("volume", 0)
-        }
+        self.app.logger.info(f"Track update - {artist} / {title}  (status: {status}, volume: {volume})")
         
         # Update OLED Scroller if available
         if self.app.oled:
-            artist = track_info.get("artist", "")
-            album = track_info.get("album", "")
-            title = track_info.get("title", "")
-            volume = track_info.get("volume", 0)
-            
-            
             self.app.oled.set_volume(volume)
             self.app.oled.set_repeat_status(repeat_status)
             
-            self.app.logger.info(f"player status: {status}, title: {title}, artist: {artist}, album: {album}, volume: {volume}, repeat: {repeat_status}")
             if status == "playing":
                 self.app.oled.set_player_status("PLAY")
                 self.app.oled.set_artist(artist)
@@ -89,7 +74,6 @@ class WSService:
                 self.app.oled.set_player_status("STOP")
                 self.app.oled.set_artist("")
                 self.app.oled.set_text("Idle")
-
 
     async def handle_volume_changed(self, payload):
         self.app.logger.info(f"Volume update received: {payload}")
@@ -152,8 +136,6 @@ class WSService:
             await self.app.ws.send(reg_json)
             self.app.logger.info(f"📝 Registration message sent: {self.app.config['client']['name']} to backend {self.app.config['backend']['ip']}:{self.app.config['backend']['port']}")
             
-            # Wait for registration response (may receive other messages first)
-            # Keep receiving until we get the register_response
             timeout_end = time.time() + 5
             while time.time() < timeout_end:
                 response_text = await asyncio.wait_for(
@@ -170,8 +152,6 @@ class WSService:
                             self.app.logger.info(f"✅ Registration successful: {self.app.config['client']['name']} (ID: {self.app.client_id})")
                             if self.app.oled:
                                 self.app.oled.set_net_status("WS:OK")
-                            # We don't want to overwrite the track info with "Connected" permanently.                                                                    
-                            # It is better to just let the main WebSocket loop handle state.
                             return
                         else:
                             self.app.logger.info(f"❌ Registration failed: {payload.get('message')}")

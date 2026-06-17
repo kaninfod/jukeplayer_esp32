@@ -221,12 +221,14 @@ class HardwareService:
 
                 self.app.logger.info(f"[MS] ENCODING MODE - Writing album_id: {nfc_encoding_album_id}")
                 display_text = f"Encoding album_id: {nfc_encoding_album_id}"
-                self.app.oled.set_text(display_text)
+                if self.app.oled:
+                    self.app.oled.set_text(display_text)
                 await self.write_nfc_data(nfc_encoding_album_id, "MS-WRITE")
             else:
                 # NORMAL MODE: Read from the card
                 self.app.logger.info(f"[MS] NORMAL MODE - Reading card")
-                self.app.oled.set_text("Reading card...")
+                if self.app.oled:
+                    self.app.oled.set_text("Reading card...")
                 await self.handle_read_nfc()        
         except Exception as e:
             self.app.logger.info(f"Error handling microswitch press: {e}")
