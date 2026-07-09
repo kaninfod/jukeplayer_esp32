@@ -1,18 +1,20 @@
-import asyncio
+# from asyncio import base_events
+# import asyncio
 import gc
-from jukeplayer.lib.logger import log
+from jukeplayer.core.logger import log
+import sys
 
 def start_app():
-    # Clean memory before loading the big app class
     gc.collect()
     try:
+        log.info(f"Starting Jukebox app...")
         from jukeplayer.app import main
+        import asyncio
         asyncio.run(main())
     except KeyboardInterrupt:
         log.info("App stopped by KeyboardInterrupt")
     except Exception as e:
-        log.error(f"Application crashed: {e}")
-
-# This allows typing 'import main' or just hitting Run in Thonny 
-# without needing to explicitly call start_app() manually.
+        log.error("Application crashed:")
+        sys.print_exception(e)
+        
 start_app()

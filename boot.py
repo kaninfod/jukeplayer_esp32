@@ -10,8 +10,8 @@ import sys
 import time
 
 try:
-    from jukeplayer.lib.logger import log
-    from jukeplayer.lib import wifi_manager
+    from jukeplayer.core.logger import log
+    from jukeplayer.core import wifi_manager
 except ImportError as e:
     print(f"CRITICAL BOOT ERROR: Could not load logger or wifi_manager: {e}")
     sys.exit(1)
@@ -61,7 +61,7 @@ def boot_sequence():
     webrepl_cfg = config.get("webrepl", {})
     if webrepl_cfg.get("enabled"):
         try:
-            pw = webrepl_cfg.get("password", "jukeplay")
+            pw = webrepl_cfg.get("password", "")
             # Max password length for WebREPL is 9 characters! 
             if len(pw) > 9:
                 pw = pw[:9]

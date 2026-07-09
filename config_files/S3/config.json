@@ -1,0 +1,112 @@
+{
+  "client": {
+    "name": "ESP32_S3 Testbench",
+    "type": "esp32",
+    "device_id": "bedroom"
+  },
+  "capabilities": [
+    "nfc_reader",
+    "display",
+    "buttons",
+    "minimal_messaging"
+  ],
+  "backend": {
+    "ip": "192.168.68.102",
+    "port": 8001
+  },
+  "wifi": {
+    "ssid": "neptunium",
+    "password": "neppetun#1733"
+  },
+  "server": {
+    "timeout_ms": 5000
+  },
+  "webrepl": {
+    "enabled": true,
+    "password": "jukeplay"
+  },
+  "hardware": {
+    "oled": {
+      "enabled": false,
+      "interface": "spi",
+      "mosi": 1,
+      "miso": 2,
+      "cs": 3,
+      "dc": 46,
+      "reset": 9,
+      "led_backlight": 21,
+      "width": 128,
+      "height": 64
+    },
+    "nfc_reader": {
+      "enabled": false,
+      "spi_unit": 1,
+      "baudrate": 4000000,
+      "polarity": 0,
+      "phase": 0,
+      "cs": 10,
+      "mosi": 11,
+      "miso": 12,
+      "sck": 13,
+      "irq": 14,
+      "reset": 43
+    },
+    "encoder": {
+      "enabled": false,
+      "clk": 4,
+      "dt": 5,
+      "sw": 6
+    },
+    "buttons": {
+      "enabled": false,
+      "debounce_ms": 100,
+      "pins": {
+          "play_pause": {
+                "pin": 7,
+                "action_name": "play_pause",
+                "active_low": true
+              },
+        "next_track": {
+                "pin": 17,
+                "action_name": "next_track",
+                "active_low": true
+              },
+        "previous_track": {
+                "pin": 15,
+                "action_name": "previous_track",
+                "active_low": true
+              },
+        "stop": {
+                "pin": 16,
+                "action_name": "stop",
+                "active_low": true
+              },
+        "nfc_card": {
+                "pin": 38,
+                "action_name": "nfc_card",
+                "active_low": false
+              },
+        "encoder_sw": {
+                "pin": 6,
+                "action_name": "encoder_sw",
+                "active_low": true
+              },
+        "util1": {
+                "pin": 18,
+                "action_name": "util1",
+                "active_low": true
+              },
+        "util2": {
+                "pin": 47,
+                "action_name": "util2",
+                "active_low": true
+              }
+      }      
+    },
+    "status_leds": {
+      "util_led_1": 39,
+      "util_led_2": 40,
+      "util_led_3": 41
+    }
+  }
+}

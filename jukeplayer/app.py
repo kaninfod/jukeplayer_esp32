@@ -1,27 +1,17 @@
-from jukeplayer.lib.nfc_reader import NFCReader
-from jukeplayer.lib.input_controller import InputController
-# from jukeplayer.lib.ky_040 import KY040Controller
-from jukeplayer.lib.rotary_irq_esp import RotaryIRQ
-from jukeplayer.lib.ws_events import AsyncWebsocketClient
-from jukeplayer.gui.oled_manager import OLEDScroller
-from jukeplayer.lib.ws_service import  WSService
-from jukeplayer.lib.hardware_bus import HardwareBus
-from jukeplayer.lib.hardware_service import HardwareService
+from jukeplayer.core.logger import log
+from jukeplayer.hardware.hardware_factory import HardwareFactory
+from jukeplayer.core.ws_events import AsyncWebsocketClient
+from jukeplayer.services.ws_service import  WSService
+from jukeplayer.services.hardware_service import HardwareService
 import asyncio
+# import time
 
-import time
+from jukeplayer.mqtt.ha_mqtt_devices import HAMQTTService
+
 __version__ = "FILESYSTEM_v1"  # Change to "FILESYSTEM_v1" in your device copy
 
-
-from jukeplayer.lib.logger import log
-
 def load_config():
-    """Load configuration from config.json file at device root.
-    
-    NOTE: config.json is NOT frozen with the application, so it can be
-    modified on the device without rebuilding the frozen firmware.
-    The file must be located at the root of the device filesystem.
-    """
+    """Load configuration from config.json file at device root."""
     import json
 
     try:
@@ -31,8 +21,6 @@ def load_config():
         return config
     except Exception as e:
         log.error(f"FATAL ERROR loading config.json in main.py: {e}")
-        # Return fallback just so object creation doesn't crash here 
-        # (Though boot.py would have frozen first if it really doesn't exist)
         return {}
 
 
@@ -40,126 +28,88 @@ class JukeBoxApp:
     """Main application orchestrating display, NFC, API, and WebSocket."""
     
     def __init__(self):
-        log.info("Initializing Hardware...")
+        self.logger = log
+        self.logger.info("Initializing JukeBoxApp...")
         
-        # Load configuration
         self.config = load_config()
-        self.bus = HardwareBus(self.config)
+        
+        factory = HardwareFactory(self.config)
+
+        self.hw_service = HardwareService(self)
+
+        self.oled = factory.get_oled()
+        self.nfc = factory.get_nfc()
+        
+        self.pushbuttons = factory.get_pushbuttons()
+        self.hw_service.assign_button_handlers()
+
+        self.encoder = factory.get_encoder()
+        self.encoder.add_listener(self.hw_service.on_encoder_change)
+        
+        self.debounce_task = None
+
+        self.oled.start()
 
         self.state = {
             "title": "Idle",
             "artist": "",
+            "album": "",
+            "track": "",
             "status": "STOP",
+            "player_status": "idle",
             "volume": 0,
             "repeat": False,
+            "repeat_status": False,
+            "network_status": "ws_connecting",
+            "mute_status": False,
+            "client_id": "",
+            "memory_usage": 0,
             "nfc_encoding_state": None,
             "nfc_encoding_album_id": None
-
         }
          
-        # Check for dummy mode (disables all hardware)
-        self.dummy_mode = self.config.get("dummy_mode", False)
-        if self.dummy_mode:
-            log.info(f"⚠️  DUMMY MODE ENABLED - All hardware disabled")
-        
         # Extract backend settings from config
         backend_ip = self.config["backend"]["ip"]
         backend_port = self.config["backend"]["port"]
         ws_path = "/ws/mediaplayer/events?detail=minimal"
         self.server_url = f"ws://{backend_ip}:{backend_port}{ws_path}"
-        
-        # Extract pin configs
-        display_cfg = self.config.get("oled", {})
-        encoder_cfg = self.config.get("encoder", {})
-        buttons_cfg = self.config.get("buttons", {})
 
         self.ws_service = WSService(self)
-        self.logger = log
 
-        
-
-        # Initialize OLED Scroller (which sets up I2C internally based on config.oled)
-        self.logger.info("Initializing OLED Scroller...")
-        try:
-            self.oled = OLEDScroller(display_cfg)
-            self.oled.start()
-
-        except Exception as e:
-            self.logger.error(f"Failed to init OLED: {e}")
-            self.oled = None
-        
-        try:
-            self.nfc = NFCReader(self.bus.get_nfc_spi())
-        except Exception as e:
-            self.logger.info(f"WARNING - NFC reader initialization failed: {e}")
-            self.nfc = None
-        
-
-        self.inputs = InputController(
-            button_pins=self.bus.get_button_pins(),
-            debounce_ms=buttons_cfg.get('debounce_ms', 100),
-            dummy_mode=self.dummy_mode)
-        
-        
-        self.encoder = RotaryIRQ(
-            pin_num_clk=25,
-            pin_num_dt=27,
-            min_val=0,
-            max_val=100,
-            incr=3,
-            reverse=False,
-            range_mode=RotaryIRQ.RANGE_BOUNDED
-        )
-        
-        self.encoder_event = asyncio.Event()
-        self.encoder.add_listener(self._hardware_callback)
-        self.target_volume = 0
-        self.debounce_task = None
-        
-        # WebSocket client (library-based)
-        self.ws = AsyncWebsocketClient(5)  # socket_delay_ms as positional argument
+        # WebSocket client
+        self.ws = AsyncWebsocketClient(5)  
         
         # Client registration state
         self.client_id = None
         
         # NFC encoding state (used to suppress normal reads during encoding)
-        self.nfc_encoding_album_id = None  # Set when encoding mode is active
+        self.nfc_encoding_album_id = None  
         
         # Memory monitoring (log every 30 seconds)
         self.last_memory_log = 0
         self.memory_log_interval = 30000  # Log memory every 30 seconds
-
-    def _hardware_callback(self):
-            self.encoder_event.set()
-
-
-
-    async def _set_volume_debounce_worker(self):
-        try:
-            await asyncio.sleep_ms(300)
-            hw_service = HardwareService(self)
-            await hw_service.handle_volume_change(self.target_volume)
-            log.info(f"Volume change sent to backend: {self.target_volume}%")
-        except asyncio.CancelledError:
-            pass
-
+        
+        # Initialize MQTT service
+        self.mqtt_service = HAMQTTService(self)
+            
     async def run(self):
         """Main application loop using async pattern."""
-        
-        # Wait briefly for backend and network to stabilize before WebSocket connection
-        # This reduces failed handshake attempts on first boot
         import asyncio, gc
 
         self.logger.info("Waiting 3 seconds before WebSocket connection...")
         await asyncio.sleep(3)
         
-        gc.collect()  # Free memory before API call
+        gc.collect() 
         
         # Main event loop - run WebSocket and input handling concurrently
-        await asyncio.gather(
+        tasks = [
             self._websocket_loop(),
-            self._hw_loop()
-        )
+            self._telemetry_loop()
+        ]
+        if self.mqtt_service.enabled:
+            tasks.append(self.mqtt_service.run())
+            
+        await asyncio.gather(*tasks)
 
     async def _websocket_loop(self):
         """Manage WebSocket connection and receive updates."""
@@ -203,52 +153,33 @@ class JukeBoxApp:
             
             # Exponential backoff on reconnect (2s → 4s → 8s → ... → 30s)
             self.logger.info(f"Reconnecting in {reconnect_delay}s...")
-            if self.oled:
-                self.oled.set_net_status("WS:ERR")
+            
+            self.oled.set_net_status("WS:ERR")
+            self.state["network_status"] = "ws_error"
+            self.mqtt_service.publish_snapshot(reason="ws_error")
             await asyncio.sleep(reconnect_delay)
             reconnect_delay = min(reconnect_delay * 2, max_reconnect_delay)
 
-    async def _hw_loop(self):
-        """Handle button presses, microswitch, rotary encoder, and potentiometer input."""
+
+    async def _telemetry_loop(self):
+        """Handle background telemetry and timed tasks."""
         import time, asyncio
-        hw_service = HardwareService(self)
         
         while True:
             try:
-                # Check all inputs (buttons and microswitch)
-                input_name = self.inputs.check_inputs()
-                if input_name:
-                    if input_name == InputController.NFC_CARD:
-                        await hw_service.handle_microswitch_press()
-                    else:
-                        await hw_service.handle_button_press(input_name)
-                
-                if self.encoder_event.is_set():
-                    self.encoder_event.clear() # Reset the flag
-                    
-                    self.target_volume = self.encoder.value()
-                    if self.oled:
-                        self.oled.set_volume(self.target_volume)
-                        
-                    # Manage the 300ms API timer
-                    if self.debounce_task and not self.debounce_task.done():
-                        self.debounce_task.cancel()
-                    self.debounce_task = asyncio.create_task(self._set_volume_debounce_worker())
-
                 # Memory monitoring every 30 seconds
                 now = time.ticks_ms()
                 if time.ticks_diff(now, self.last_memory_log) >= self.memory_log_interval:
                     self.last_memory_log = now
                     self._log_memory_usage()
                 
-                # Yield to event loop frequently to prevent watchdog timeout
-                await asyncio.sleep_ms(50)
+                # We can sleep longer here now since it isn't checking rapid knob turns
+                await asyncio.sleep(1)
                 
             except KeyboardInterrupt:
-                # Allow keyboard interrupt to propagate
                 raise
             except Exception as e:
-                self.logger.info(f"Hardware loop error: {e}")
+                self.logger.info(f"Telemetry loop error: {e}")
                 await asyncio.sleep(1)
 
     def _log_memory_usage(self):
@@ -259,11 +190,12 @@ class JukeBoxApp:
             alloc = gc.mem_alloc()
             total = free + alloc
             used_pct = (alloc * 100) // total if total > 0 else 0
+            self.state["memory_usage"] = used_pct
+            self.state["client_id"] = self.client_id or ""
             self.logger.info(f"[MEM] Free: {free} bytes | Used: {used_pct}% | Client ID: {self.client_id}")
+            self.mqtt_service.publish_snapshot(reason="memory")
         except Exception as e:
             self.logger.info(f"[MEM] Error reading memory: {e}")
-
-
 
 async def main():
     """Entry point for async app."""

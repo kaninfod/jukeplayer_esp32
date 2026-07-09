@@ -1,0 +1,76 @@
+{
+  "client": {
+    "name": "ESP32_Klangmeister",
+    "type": "esp32",
+    "device_id": "living_room"
+  },
+  "capabilities": [
+    "nfc_reader",
+    "display",
+    "buttons",
+    "minimal_messaging"
+  ],
+  "backend": {
+    "ip": "192.168.68.102",
+    "port": 8001
+  },
+  "wifi": {
+    "ssid": "neptunium",
+    "password": "neppetun#1733"
+  },
+  "server": {
+    "timeout_ms": 5000
+  },
+  "webrepl": {
+    "enabled": true,
+    "password": "jukeplay"
+  },
+  "dummy_mode": true,
+  "hardware": {
+    "oled": {
+      "enabled": true,
+      "sda": 13,
+      "scl": 14,
+      "width": 128,
+      "height": 64
+    },
+    "nfc_reader": {
+      "enabled": true,
+      "spi_unit": 1,
+      "baudrate": 4000000,
+      "polarity": 0,
+      "phase": 0,
+      "sck": 18,
+      "mosi": 23,
+      "miso": 19,
+      "reset": 4,
+      "cs": 5
+    },
+    "encoder": {
+      "enabled": true,
+      "clk": 25,
+      "dt": 27,
+      "sw": 16
+    },
+    "buttons": {
+      "enabled": true,
+      "debounce_ms": 100,
+      "pins": {
+        "play_pause": 33,
+        "next_track": 35,
+        "previous_track": 32,
+        "stop": 34,
+        "nfc_card": 26,
+        "encoder_sw": 16
+      }
+    }
+  },
+  "mqtt": {
+    "enabled": true,
+    "broker": "192.168.68.100",
+    "port": 1883,
+    "user": "mqtt-user",
+    "password": "mqtt#sec#2472",
+    "discovery_prefix": "homeassistant"
+  }
+}
