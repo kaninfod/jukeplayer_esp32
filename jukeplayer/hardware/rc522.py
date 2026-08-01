@@ -16,7 +16,7 @@ class MFRC522:
 	def __init__(self, rst, cs, spi=None):
 
 		self.rst = Pin(rst, Pin.OUT)
-		self.cs = Pin(cs, Pin.OUT)
+		self.cs = Pin(cs, Pin.OUT, value=1)
 
 		self.rst.value(0)
 		time.sleep_ms(100)

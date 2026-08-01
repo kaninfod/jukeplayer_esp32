@@ -21,92 +21,118 @@
   "server": {
     "timeout_ms": 5000
   },
+  "mqtt": {
+    "enabled": true,
+    "start_delay_s": 5,
+    "broker": "192.168.68.100",
+    "port": 1883,
+    "user": "mqtt-user",
+    "password": "mqtt#sec#2472",
+    "discovery_prefix": "homeassistant"
+  },
   "webrepl": {
     "enabled": true,
     "password": "jukeplay"
   },
   "hardware": {
+    "spi": {
+      "spi_unit": 1,
+      "baudrate": 4000000,
+      "polarity": 0,
+      "phase": 0,
+      "sck": 13,
+      "mosi": 11,
+      "miso": 12
+    },
     "oled": {
       "enabled": false,
       "interface": "spi",
       "mosi": 1,
       "miso": 2,
-      "cs": 3,
-      "dc": 46,
-      "reset": 9,
+      "cs": 8,
+      "dc": 3,
+      "reset": 46,
       "led_backlight": 21,
       "width": 128,
       "height": 64
     },
+    "tft": {
+      "enabled": true,
+      "interface": "spi",
+      "cs": 5,
+      "a0": 7,
+      "reset": 4,
+      "led": 15,
+      "width": 160,
+      "height": 128
+    },
     "nfc_reader": {
-      "enabled": false,
-      "spi_unit": 1,
-      "baudrate": 4000000,
-      "polarity": 0,
-      "phase": 0,
+      "enabled": true,
       "cs": 10,
-      "mosi": 11,
-      "miso": 12,
-      "sck": 13,
       "irq": 14,
-      "reset": 43
+      "reset": 9
     },
     "encoder": {
-      "enabled": false,
-      "clk": 4,
-      "dt": 5,
+      "enabled": true,
+      "clk": 1,
+      "dt": 2,
       "sw": 6
     },
     "buttons": {
-      "enabled": false,
+      "enabled": true,
       "debounce_ms": 100,
       "pins": {
           "play_pause": {
-                "pin": 7,
+                "pin": 17,
                 "action_name": "play_pause",
-                "active_low": true
+                "active_low": true,
+                "label": "Play / Pause"
               },
         "next_track": {
-                "pin": 17,
+                "pin": 3,
                 "action_name": "next_track",
-                "active_low": true
+                "active_low": true,
+                "label": "Next"
               },
         "previous_track": {
-                "pin": 15,
+                "pin": 18,
                 "action_name": "previous_track",
-                "active_low": true
+                "active_low": true,
+                "label": "Previous"
               },
         "stop": {
-                "pin": 16,
+                "pin": 8,
                 "action_name": "stop",
-                "active_low": true
+                "active_low": true,
+                "label": "Stop"
               },
         "nfc_card": {
-                "pin": 38,
+                "pin": 16,
                 "action_name": "nfc_card",
-                "active_low": false
+                "active_low": false,
+                "label": "NFC"
               },
         "encoder_sw": {
                 "pin": 6,
                 "action_name": "encoder_sw",
-                "active_low": true
+                "active_low": true,
+                "label": "Encoder"
               },
-        "util1": {
-                "pin": 18,
-                "action_name": "util1",
-                "active_low": true
-              },
-        "util2": {
-                "pin": 47,
-                "action_name": "util2",
-                "active_low": true
+        "utility_button": {
+                "pin": 48,
+                "action_name": "utility_button",
+                "active_low": true,
+                "label": "Utility"
               }
-      }      
+      }
     },
-    "status_leds": {
-      "util_led_1": 39,
-      "util_led_2": 40,
-      "util_led_3": 41
+    "leds": {
+      "enabled": true,
+      "pins": {
+        "red": 39,
+        "green": 40,
+        "blue": 41
+      }
     }
   }
 }

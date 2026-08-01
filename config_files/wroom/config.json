@@ -35,6 +35,15 @@
   },
   "dummy_mode": false,
   "hardware": {
+    "spi": {
+      "spi_unit": 1,
+      "baudrate": 4000000,
+      "polarity": 0,
+      "phase": 0,
+      "sck": 18,
+      "mosi": 23,
+      "miso": 19
+    },
     "oled": {
       "enabled": true,
       "sda": 13,
@@ -44,13 +53,6 @@
     },
     "nfc_reader": {
       "enabled": true,
-      "spi_unit": 1,
-      "baudrate": 4000000,
-      "polarity": 0,
-      "phase": 0,
-      "sck": 18,
-      "mosi": 23,
-      "miso": 19,
       "reset": 4,
       "cs": 5
     },
@@ -72,27 +74,32 @@
         "next_track": {
                 "pin": 35,
                 "action_name": "next_track",
-                "active_low": true
+                "active_low": true,
+                "label": "Next"
               },
         "previous_track": {
                 "pin": 32,
                 "action_name": "previous_track",
-                "active_low": true
+                "active_low": true,
+                "label": "Previous"
               },
         "stop": {
                 "pin": 34,
                 "action_name": "stop",
-                "active_low": true
+                "active_low": true,
+                "label": "Stop"
               },
         "nfc_card": {
                 "pin": 26,
                 "action_name": "nfc_card",
-                "active_low": false
+                "active_low": false,
+                "label": "NFC"
               },
         "encoder_sw": {
                 "pin": 16,
                 "action_name": "encoder_sw",
-                "active_low": true
+                "active_low": true,
+                "label": "Encoder"
               }
       }
     }

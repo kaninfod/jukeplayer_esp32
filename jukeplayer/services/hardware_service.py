@@ -1,7 +1,10 @@
-class HardwareService:
-    
+from jukeplayer.core.state_constants import *
+from jukeplayer.services.button_handler import ButtonHandler
+
+class HardwareService: 
     def __init__(self, app):
         self.app = app
+        self.button_handler = ButtonHandler(app)
 
     async def handle_volume_change(self, volume):
         """Handle potentiometer volume change - send via WebSocket immediately."""
@@ -24,185 +27,65 @@ class HardwareService:
             self.app.logger.info(f"Volume control error: {e}")
 
     async def handle_button_press(self, button_name, press_type="single"):
-        """Handle button press by sending command via WebSocket.
-        
-        Send control command via WebSocket /events endpoint.
-        """
-        import gc, json
-        self.app.logger.info(f"Button pressed: {button_name} with press type: {press_type}")
-        
-        gc.collect()  # Free memory before sending
-        success = False
-        
-        # allowed commands from for ws action
-        ws_command_whitelist = ["play_pause", "next_track", "previous_track", "stop"]
-        
-        if button_name in ws_command_whitelist and press_type == "single":
-            try:
-                await self.app.ws.send(json.dumps( { "type": button_name, "payload": {} } ))
-                success = True
-            except Exception as e:
-                self.app.logger.info(f"Failed to send {button_name} command: {e}")
-                success = False
-
-        elif button_name == "nfc_card":
-            await self.handle_microswitch_press()
-            self.app.logger.info(f"NFC Microswitch pressed")
-            success = True
-        elif button_name == "encoder_press" and press_type == "single":
-            self.app.state["menu_mode"] = True
-            self.app.logger.info(f"Entering menu mode")
-        elif button_name == "previous_track" and press_type == "long":
-            self.app.state["menu_mode"] = False
-            self.app.logger.info(f"Exiting menu mode")                   
-        elif button_name == "stop" and press_type == "long":
-            try:
-                await self.app.ws.send(json.dumps( { "type": "volume_mute", "payload": {} } ))
-                self.app.state["mute_status"] = not bool(self.app.state.get("mute_status", False))
-                self.app.mqtt_service.publish_snapshot(reason="mute_toggle")
-                self.app.logger.info(f"Volume mute command sent")
-                success = True
-            except Exception as e:
-                self.app.logger.info(f"Failed to send {button_name} command: {e}")
-                success = False
-
-
-        if not success:
-            self.app.logger.info(f"{button_name} command not supported for press type {press_type}")
-        gc.collect()  # Free memory after sending            
-
-    async def handle_card_scanned(self, album_id):
-        """Handle NFC card scan with album ID."""
-        import gc, json
-
-        self.app.logger.info(f"Card scanned with album ID: {album_id}")
-        
-        gc.collect()  # Free memory before WS call
-        msg = {
-            "type": "play_album",
-            "payload": {
-                "album_id": album_id
-            }
-        }
-        try:
-            await self.app.ws.send(json.dumps(msg))
-            self.app.logger.info(f"Requested to play album_id={album_id}")
-        except Exception as e:
-            self.app.logger.info(f"Failed to send play album command: {e}")
-        gc.collect()  # Free memory after WS call
+        """Route button events to the handler."""
+        await self.button_handler.dispatch(button_name, press_type)
     
-    async def handle_microswitch_press(self):
-        """Handle microswitch press - read card in normal mode, write in encoding mode."""
-        import json
-
-        try:
-            if self.app.nfc is None:
-                self.app.logger.info(f"NFC reader not available")
-                return
-            
-            self.app.logger.info(f"Microswitch pressed")
-            
-            # Check if we're in NFC encoding mode
-            nfc_encoding_album_id = self.app.state.get("nfc_encoding_album_id") 
-            self.app.logger.info(f" write_nfc_data called with album_id: {nfc_encoding_album_id}")
-            if nfc_encoding_album_id:
-                # ENCODING MODE: Write the album ID to the card
-                
-                response = {
-                    "type": "nfc_encoding_started",
-                    "payload": {"album_id": nfc_encoding_album_id}
-                }
-                await self.app.ws.send(json.dumps(response))
-
-                self.app.logger.info(f"[MS] ENCODING MODE - Writing album_id: {nfc_encoding_album_id}")
-                display_text = f"Encoding album_id: {nfc_encoding_album_id}"
-                
-                self.app.oled.set_text(display_text)
-                await self.write_nfc_data(nfc_encoding_album_id, "MS-WRITE")
-            else:
-                # NORMAL MODE: Read from the card
-                self.app.logger.info(f"[MS] NORMAL MODE - Reading card")
-                self.app.oled.set_text("Reading card...")
-                await self.handle_read_nfc()        
-        except Exception as e:
-            self.app.logger.info(f"Error handling microswitch press: {e}")
-
-    async def write_nfc_data(self, album_id, context=""):
-        """Unified NFC write handler - send result to backend.
+    # async def handle_button_press(self, button_name, press_type="single"):
+    #     """Handle button press by sending command via WebSocket.
         
-        Args:
-            album_id: Album ID to write to card
-            context: Log context prefix (e.g., 'NFC-BG', 'MS-WRITE')
-        """
-
-        import json
+    #     Send control command via WebSocket /events endpoint.
+    #     """
+    #     import gc, json
+    #     self.app.logger.info(f"Button pressed: {button_name} with press type: {press_type}")
         
-        if self.app.nfc is None:
-            if context:
-                self.app.logger.info(f"[{context}] NFC reader not available - skipping write")
-            return
+    #     gc.collect()  # Free memory before sending
+    #     success = False
         
-        try:
-            if context:
-                self.app.logger.info(f"[{context}] Starting write_data for album_id: {album_id}")
-            
-            result = self.app.nfc.write_data(album_id, timeout_ms=30000)
-            
-            if context:
-                self.app.logger.info(f"[{context}] Result - status: {result.get('status')}, uid: {result.get('uid')}")
-            
-            # Send completion message back to backend
-            response = {
-                "type": "nfc_encoding_complete",
-                "payload": result
-            }
-            await self.app.ws.send(json.dumps(response))
-            
-            if context:
-                self.app.logger.info(f"[{context}] Sent encoding result to backend")
-        except Exception as e:
-            if context:
-                self.app.logger.info(f"[{context}] Error: {e}")
-            
-            response = {
-                "type": "nfc_encoding_complete",
-                "payload": {
-                    "status": "error",
-                    "uid": None,
-                    "error_message": str(e)
-                }
-            }
-            try:
-                await self.app.ws.send(json.dumps(response))
-            except Exception as send_error:
-                if context:
-                    self.app.logger.info(f"[{context}] Failed to send error: {send_error}")
-        finally:
-            # Clear encoding flag
-            if self.app.state.get("nfc_encoding_album_id") == album_id:
-                self.app.state["nfc_encoding_album_id"] = None
-                if context:
-                    self.app.logger.info(f"[{context}] Encoding mode cleared")
-
-
-    async def handle_read_nfc(self):
-        """Read card via microswitch trigger."""
-        import asyncio
-
-        if self.app.nfc is None:
-            self.app.logger.info(f"[MS-READ] NFC reader not available")
-            return
+    #     # allowed commands from for ws action
+    #     ws_command_whitelist = ["play_pause", "next_track", "previous_track", "stop"]
         
-        try:
-            album_id = self.app.nfc.read_album_id()
-            if album_id:
-                self.app.logger.info(f"[MS-READ] Card read - album_id: {album_id}")
-                await self.handle_card_scanned(album_id)
-                await asyncio.sleep(1)  # Debounce after successful read
-            else:
-                self.app.logger.info(f"[MS-READ] No card detected or read failed")
-        except Exception as e:
-            self.app.logger.info(f"[MS-READ] Error: {e}")
+    #     if button_name in ws_command_whitelist and press_type == "single":
+    #         try:
+    #             self.app.display.show_message(f"{button_name} pressed ", duration=5)
+    #             await self.app.ws.send(json.dumps( { "type": button_name, "payload": {} } ))
+
+    #             success = True
+    #         except Exception as e:
+    #             self.app.logger.info(f"Failed to send {button_name} command: {e}")
+    #             success = False
+    #     elif button_name == "nfc_card":
+    #         from jukeplayer.services.nfc_service import NFCService
+    #         nfc_service = NFCService(self.app)
+    #         await nfc_service.handle_microswitch_press()
+    #         self.app.logger.info(f"NFC card detected via microswitch")
+    #         success = True
+    #     elif button_name == "encoder_sw" and press_type == "long":
+    #         if self.app.display.get_current_layout() != "message":
+    #             self.app.logger.info(f"Switching to 'message' layout")
+    #             self.app.display.show_message("Encoder SW long press detected and will stay active for 10 sec.", duration=10)
+    #         else:
+    #             self.app.logger.info(f"Switching back to 'status' layout")
+    #             self.app.display.switch_layout("status")
+    #         success = True
+    #     elif button_name == "play_pause" and press_type == "long":
+    #             #import machine
+    #             #machine.reset()
+    #             self.app.logger.info(f"Long press on play_pause button detected - toggling backlight")
+    #             self.app.display.backlight.toggle()
+    #             success = True
+    #     elif button_name == "stop" and press_type == "long":
+    #         try:
+    #             await self.app.ws.send(json.dumps( { "type": "volume_mute", "payload": {} } ))
+    #             self.app.state.set({MUTE_STATUS: not bool(self.app.state.get(MUTE_STATUS, False))})
+    #             self.app.logger.info(f"Volume mute command sent")
+    #             success = True
+    #         except Exception as e:
+    #             self.app.logger.info(f"Failed to send {button_name} command: {e}")
+    #             success = False
+
+    #     if not success:
+    #         self.app.logger.info(f"{button_name} command not supported for press type {press_type}")
+    #     gc.collect()  # Free memory after sending            
 
     async def set_volume_debounce_worker(self, current_volume, debounce_s=0.3):
         """Wait briefly, then send the latest volume update to backend."""
@@ -222,7 +105,7 @@ class HardwareService:
         
         import asyncio
         current_volume = self.app.encoder.value()
-        self.app.oled.set_volume(current_volume)
+        # self.app.display.set_volume(current_volume)
         self.app.logger.info(f"Encoder turned - current volume: {current_volume}%")
         # Manage the 300ms debounce API timer
         if self.app.debounce_task and not self.app.debounce_task.done():

@@ -1,5 +1,8 @@
+from jukeplayer.core.state_constants import *
 import time
 from jukeplayer.mqtt.ha_mqtt_lib import EntityGroup
+from jukeplayer.core.logger import log
+
 
 try:
     from umqtt.simple import MQTTClient
@@ -15,6 +18,8 @@ class HAMQTTService:
         self.logger = app.logger
         self.config = app.config
         
+        self._connected = False
+
         self.mqtt_cfg = self.config.get("mqtt", {})
         self.enabled = self.mqtt_cfg.get("enabled", False) and MQTTClient is not None
         
@@ -30,124 +35,42 @@ class HAMQTTService:
         self.client_name = self.config.get("client", {}).get("name", "JukePlayer")
         self.device_id = self.config.get("client", {}).get("device_id", "jukeplayer_esp32")
 
+    def _expand_placeholders(self, value):
+        """Recursively expand placeholders in loaded device config values."""
+        if isinstance(value, str):
+            return (
+                value.replace("{device_id}", str(self.device_id))
+                .replace("{client_name}", str(self.client_name))
+            )
+        if isinstance(value, list):
+            return [self._expand_placeholders(item) for item in value]
+        if isinstance(value, dict):
+            expanded = {}
+            for key, item in value.items():
+                expanded[key] = self._expand_placeholders(item)
+            return expanded
+        return value
+
     def _sensor_definitions(self):
-        return [
-            {
-                "component": "sensor",
-                "label": "Artist",
-                "object_id": b"artist",
-                "extra_conf": {
-                    "unique_id": f"{self.device_id}_artist",
-                    "value_template": "{{ value_json.artist }}",
-                    "icon": "mdi:account-music",
-                },
-            },
-            {
-                "component": "sensor",
-                "label": "Album",
-                "object_id": b"album",
-                "extra_conf": {
-                    "unique_id": f"{self.device_id}_album",
-                    "value_template": "{{ value_json.album }}",
-                    "icon": "mdi:album",
-                },
-            },
-            {
-                "component": "sensor",
-                "label": "Track",
-                "object_id": b"track",
-                "extra_conf": {
-                    "unique_id": f"{self.device_id}_track",
-                    "value_template": "{{ value_json.track }}",
-                    "icon": "mdi:music-note",
-                },
-            },
-            {
-                "component": "sensor",
-                "label": "Player Status",
-                "object_id": b"player_status",
-                "extra_conf": {
-                    "unique_id": f"{self.device_id}_player_status",
-                    "value_template": "{{ value_json.player_status }}",
-                    "icon": "mdi:play-circle",
-                    "device_class": "enum",
-                    "options": ["playing", "paused", "stopped", "idle"],
-                },
-            },
-            {
-                "component": "sensor",
-                "label": "Volume",
-                "object_id": b"volume",
-                "extra_conf": {
-                    "unique_id": f"{self.device_id}_volume",
-                    "value_template": "{{ value_json.volume | int(0) }}",
-                    "icon": "mdi:volume-high",
-                    "unit_of_measurement": "%",
-                    "state_class": "measurement",
-                },
-            },
-            {
-                "component": "sensor",
-                "label": "Network Status",
-                "object_id": b"network_status",
-                "extra_conf": {
-                    "unique_id": f"{self.device_id}_network_status",
-                    "value_template": "{{ value_json.network_status }}",
-                    "icon": "mdi:wifi",
-                    "device_class": "enum",
-                    "options": ["ws_connecting", "ws_connected", "ws_error", "wifi_disconnected", "unknown"],
-                },
-            },
-            {
-                "component": "binary_sensor",
-                "label": "Repeat Status",
-                "object_id": b"repeat_status",
-                "extra_conf": {
-                    "unique_id": f"{self.device_id}_repeat_status",
-                    "value_template": "{{ 'ON' if value_json.repeat_status else 'OFF' }}",
-                    "icon": "mdi:repeat",
-                    "payload_on": "ON",
-                    "payload_off": "OFF",
-                },
-            },
-            {
-                "component": "binary_sensor",
-                "label": "Mute Status",
-                "object_id": b"mute_status",
-                "extra_conf": {
-                    "unique_id": f"{self.device_id}_mute_status",
-                    "value_template": "{{ 'ON' if value_json.mute_status else 'OFF' }}",
-                    "icon": "mdi:volume-mute",
-                    "payload_on": "ON",
-                    "payload_off": "OFF",
-                },
-            },
-            {
-                "component": "sensor",
-                "label": "Client ID",
-                "object_id": b"client_id",
-                "extra_conf": {
-                    "unique_id": f"{self.device_id}_client_id",
-                    "value_template": "{{ value_json.client_id }}",
-                    "icon": "mdi:identifier",
-                },
-            },
-            {
-                "component": "sensor",
-                "label": "Memory Usage",
-                "object_id": b"memory_usage",
-                "extra_conf": {
-                    "unique_id": f"{self.device_id}_memory_usage",
-                    "value_template": "{{ value_json.memory_usage | int(0) }}",
-                    "icon": "mdi:memory",
-                    "unit_of_measurement": "%",
-                    "state_class": "measurement",
-                },
-            },
-        ]
+        """Load sensor definitions from JSON config file."""
+        try:
+            import ujson as json
+        except ImportError:
+            import json
+
+        config_path = "jukeplayer/mqtt/device_config.json"
+        with open(config_path, "r") as f:
+            loaded = json.load(f)
+
+        if isinstance(loaded, dict):
+            definitions = loaded.get("sensors", [])
+        else:
+            definitions = loaded
+
+        return self._expand_placeholders(definitions)
 
     def _initialize_discovery(self):
-        node_id = self.device_id.encode("utf-8") if isinstance(self.device_id, str) else self.device_id
+        node_id = self.client_name.replace(" ", "_").lower().encode("utf-8") # self.device_id.encode("utf-8") if isinstance(self.device_id, str) else self.device_id
         device_config = {
             "identifiers": [self.device_id],
             "name": self.client_name,
@@ -161,10 +84,24 @@ class HAMQTTService:
         self.entities = []
 
         for item in self._sensor_definitions():
-            label = item["label"]
-            object_id = item["object_id"]
-            extra_conf = item["extra_conf"]
-            component = item["component"]
+            if not isinstance(item, dict):
+                self.logger.info(f"[MQTT] Skipping invalid sensor config entry: {item}")
+                continue
+
+            label = item.get("label")
+            object_id = item.get("object_id")
+            if not label or object_id is None:
+                self.logger.info(f"[MQTT] Skipping incomplete sensor config entry: {item}")
+                continue
+
+            if isinstance(object_id, str):
+                object_id = object_id.encode("utf-8")
+
+            extra_conf = item.get("extra_conf", {})
+            if not isinstance(extra_conf, dict):
+                extra_conf = {}
+
+            component = item.get("component", "sensor")
 
             if component == "binary_sensor":
                 entity = self.entity_group.create_binary_sensor(
@@ -180,37 +117,10 @@ class HAMQTTService:
                 )
             self.entities.append(entity)
 
-    def _build_snapshot(self):
-        """Build a normalized MQTT payload from current app state."""
-        app_state = self.app.state
-        now = time.localtime()
-        timestamp = "{:04d}-{:02d}-{:02d} {:02d}:{:02d}:{:02d}".format(
-            now[0], now[1], now[2], now[3], now[4], now[5]
-        )
-
-        return {
-            "artist": app_state.get("artist", ""),
-            "album": app_state.get("album", ""),
-            "track": app_state.get("track", ""),
-            "player_status": app_state.get("player_status", "idle"),
-            "volume": app_state.get("volume", 0),
-            "network_status": app_state.get("network_status", "unknown"),
-            "repeat_status": app_state.get("repeat_status", False),
-            "mute_status": app_state.get("mute_status", False),
-            "client_id": app_state.get("client_id", ""),
-            "memory_usage": app_state.get("memory_usage", 0),
-            "timestamp": timestamp,
-        }
-
     async def run(self):
-        """Background loop to manage MQTT connection and publish periodic updates."""
         import asyncio
-        
+        import gc
         if not self.enabled:
-            if MQTTClient is None:
-                self.logger.error("[MQTT] umqtt.simple not found. Disabling MQTT service.")
-            else:
-                self.logger.info("[MQTT] service is disabled in config.")
             return
 
         reconnect_delay = 2
@@ -218,57 +128,130 @@ class HAMQTTService:
         
         while True:
             try:
+                gc.collect()
                 self.logger.info(f"[MQTT] Connecting to broker {self.broker}:{self.port}...")
-                
                 client_id = f"jukeplayer_{self.device_id}"
                 
                 self.mqtt_client = MQTTClient(
-                    client_id=client_id,
-                    server=self.broker,
+                    client_id=client_id, 
+                    server=self.broker, 
                     port=self.port,
-                    user=self.user if self.user else None,
+                    user=self.user if self.user else None, 
                     password=self.password if self.password else None,
                     keepalive=60
                 )
                 
                 self.mqtt_client.connect()
                 self.logger.info("[MQTT] Connected successfully!")
+                self._connected = True
                 reconnect_delay = 2
                 
                 self._initialize_discovery()
-                self.logger.info("[MQTT] HA MQTT sensors initialized & discovery sent.")
-                if not self.publish_snapshot(reason="initial"):
-                    raise Exception("Initial MQTT publish failed")
+                self.publish_snapshot(reason="initial")
                 
-                # Periodically publish updates while connected
-                while True:
-                    if not self.publish_snapshot(reason="periodic"):
-                        self.logger.error("[MQTT] Publish failed, reconnecting...")
-                        break
+                # Check link health every second instead of sleeping for two minutes straight
+                periodic_timer = 0
+                ping_timer = 0
+
+                while self._connected:
+                    await asyncio.sleep(1)
+                    periodic_timer += 1
+                    ping_timer += 1
+
+                    if ping_timer >= 25:
+                        ping_timer = 0
+                        try:
+                            # Send a lightweight MQTT keep-alive ping packet
+                            self.mqtt_client.ping()
+                        except Exception as e:
+                            self.logger.error(f"[MQTT] Keep-alive ping failed: {e}")
+                            self._connected = False
+                            break
                     
-                    await asyncio.sleep(30)
+                    if periodic_timer >= 120:
+                        periodic_timer = 0
+                        self.publish_snapshot(reason="periodic")
                     
             except Exception as e:
                 self.logger.error(f"[MQTT] Connection/Loop error: {e}")
                 
+            self._connected = False
             self.cleanup()
-            
             self.logger.info(f"[MQTT] Reconnecting in {reconnect_delay}s...")
             await asyncio.sleep(reconnect_delay)
             reconnect_delay = min(reconnect_delay * 2, max_reconnect_delay)
 
-    def publish_snapshot(self, reason="update"):
-        """Publish current app state via MQTT if connected."""
-        if self.enabled and self.entity_group:
-            try:
-                payload = self._build_snapshot()
-                self.entity_group.publish_state(payload)
-                self.logger.info(f"[MQTT] Snapshot published ({reason})")
-                return True
-            except Exception as e:
-                self.logger.error(f"[MQTT] Failed to publish snapshot: {e}")
-                return False
-        return False
+    def publish_snapshot(self, reason="update", state: dict = None):
+        """Publish app state maps via MQTT if connected."""
+        if not (self.enabled and self.entity_group):
+            return False
+            
+        try:
+            # Never mutate shared AppState directly here; use a local payload dict.
+            payload = state.copy() if state else self._build_snapshot()
+            
+            # Inject a fresh calendar time stamp cleanly
+            t = time.localtime()
+            payload["timestamp"] = "{:04d}-{:02d}-{:02d} {:02d}:{:02d}:{:02d}".format(
+                t[0], t[1], t[2], t[3], t[4], t[5]
+            )
+            
+            self.logger.info(f"[MQTT] Publishing snapshot ({reason})") #: {payload}
+            self.entity_group.publish_state(payload)
+            return True
+            
+        except Exception as e:
+            self.logger.error(f"[MQTT] Failed to publish snapshot: {e}")
+            self._connected = False
+            return False
+
+
+    # def publish_snapshot(self, reason="update", state: dict = {}):
+    #     """Publish current app state via MQTT if connected."""
+    #     if self.enabled and self.entity_group:
+    #         try:
+    #             self.logger.info(f"[MQTT] Publishing snapshot. State: {state}, reason: {reason}")
+    #             payload = self._build_snapshot(state=state)
+    #             self.logger.info(f"[MQTT] Publishing snapshot with payload: {payload}")
+    #             self.entity_group.publish_state(payload)
+    #             self.logger.info(f"[MQTT] Snapshot published ({reason})")
+    #             return True
+    #         except Exception as e:
+    #             self.logger.error(f"[MQTT] Failed to publish snapshot: {e}")
+    #             return False
+    #     return False
+
+    def _build_snapshot(self, state: dict = {}):
+        """Build a normalized MQTT payload from current app state."""
+        now = time.localtime()
+        timestamp = "{:04d}-{:02d}-{:02d} {:02d}:{:02d}:{:02d}".format(
+            now[0], now[1], now[2], now[3], now[4], now[5]
+        )
+
+        if state not in (None, {}):
+            mqtt_state = {}
+            for key, value in state.items():
+                mqtt_state[key] = value
+            mqtt_state["timestamp"] = timestamp
+            self.logger.info(f"[MQTT] Built snapshot from provided state: {mqtt_state}")
+            return mqtt_state
+        else:
+            app_state = self.app.state.data
+
+            return {
+                "artist": app_state[ARTIST],
+                "album": app_state[ALBUM],
+                "track": app_state[TRACK],
+                "player_status": app_state[PLAYER_STATUS],
+                "volume": app_state[VOLUME],
+                "network_status": app_state[NETWORK_STATUS],
+                "repeat_status": app_state[REPEAT_STATUS],
+                "mute_status": app_state[MUTE_STATUS],
+                "client_id": app_state[CLIENT_ID],
+                "memory_usage": app_state[MEMORY_USAGE],
+                "timestamp": timestamp,
+                "last_nfc_scan": app_state[LAST_NFC_SCAN],
+            }
 
     def publish_state(self, _text):
         """Backward-compatible alias for older call sites."""

@@ -5,8 +5,66 @@ from machine import Pin, SPI, I2C
 class HardwareFactory:
     def __init__(self, config):
         self.config = config.get("hardware", {})
+        self._shared_spi = None
+        self._shared_spi_cfg = None
+        self._shared_spi_kwargs = None
+        self._init_shared_spi()
+
+    def _init_shared_spi(self):
+        """Initialize one shared SPI bus from hardware.spi config."""
+        spi_cfg = self.config.get("spi", {})
+        required = ("spi_unit", "sck", "mosi")
+        missing = [k for k in required if spi_cfg.get(k) is None]
+        if missing:
+            raise ValueError(f"hardware.spi missing required keys: {', '.join(missing)}")
+
+        self._shared_spi_cfg = {
+            "spi_unit": int(spi_cfg.get("spi_unit")),
+            "baudrate": int(spi_cfg.get("baudrate", 4000000)),
+            "polarity": int(spi_cfg.get("polarity", 0)),
+            "phase": int(spi_cfg.get("phase", 0)),
+            "sck": int(spi_cfg.get("sck")),
+            "mosi": int(spi_cfg.get("mosi")),
+            "miso": int(spi_cfg.get("miso")) if spi_cfg.get("miso") is not None else None,
+        }
+
+        p_sck = Pin(self._shared_spi_cfg["sck"])
+        p_mosi = Pin(self._shared_spi_cfg["mosi"])
+        p_miso = Pin(self._shared_spi_cfg["miso"]) if self._shared_spi_cfg["miso"] is not None else None
+
+        kwargs = {
+            "baudrate": self._shared_spi_cfg["baudrate"],
+            "polarity": self._shared_spi_cfg["polarity"],
+            "phase": self._shared_spi_cfg["phase"],
+            "sck": p_sck,
+            "mosi": p_mosi,
+        }
+        if p_miso is not None:
+            kwargs["miso"] = p_miso
+
+        self._shared_spi = SPI(self._shared_spi_cfg["spi_unit"], **kwargs)
+        self._shared_spi_kwargs = kwargs
+        log.info(
+            f"[SPI] shared bus initialized id={id(self._shared_spi)} unit={self._shared_spi_cfg['spi_unit']}"
+        )
+
+    def _get_shared_spi(self):
+        if self._shared_spi is None or self._shared_spi_kwargs is None:
+            self._init_shared_spi()
+
+        spi = self._shared_spi
+        kwargs = self._shared_spi_kwargs
+        if spi is None or kwargs is None:
+            raise RuntimeError("Shared SPI not initialized")
+        spi.init(**kwargs)
+        return spi
         
-    def get_oled(self):
+    def get_display(self, app_state):
+        tft_cfg = self.config.get("tft", {})
+        if tft_cfg.get("enabled", False):
+            log.info("Display factory: selecting TFT display")
+            return self.get_tft_display(app_state=app_state)
+
         cfg = self.config.get("oled", {})
         if not cfg.get("enabled", True):
             log.info("OLED Scroller: Initializing in DUMMY mode")
@@ -15,19 +73,108 @@ class HardwareFactory:
             return DummyOLEDScroller()
             
         try:
-            from jukeplayer.hardware.oled_manager import OLEDScroller
-            # Setup I2C dynamically from config
-            log.info(f"OLED Scroller: Initializing with config: {cfg}")
+            from jukeplayer.hardware.display_manager import DisplayManager
+            log.info(f"OLED Display manager: Initializing with config: {cfg}")
             sda_pin = Pin(cfg.get("sda", 13))
             scl_pin = Pin(cfg.get("scl", 14))
             i2c_unit = cfg.get("i2c_unit", 0)
             i2c = I2C(i2c_unit, sda=sda_pin, scl=scl_pin, freq=cfg.get("freq", 400000))
             
-            return OLEDScroller(i2c)
+            return DisplayManager(i2c, app_state=app_state)
         except Exception as e:
             log.error(f"Failed to init physical OLED: {e}. Falling back to Dummy OLED.")
             from jukeplayer.mocks.dummy_oled import DummyOLEDScroller
             return DummyOLEDScroller()
+
+    def get_tft_display(self, app_state):
+        """Initialize ST7735 TFT display manager without any OLED fallback path."""
+        cfg = self.config.get("tft", {})
+        if not cfg.get("enabled", True):
+            raise RuntimeError("TFT display is disabled in config")
+
+        from jukeplayer.hardware.st7735r.display_manager import DisplayManager
+
+        required = ("cs", "a0", "reset")
+        missing = [k for k in required if cfg.get(k) is None]
+        if missing:
+            raise ValueError(f"TFT config missing required pins: {', '.join(missing)}")
+
+        try:
+            log.info("[TFT] init stage 1/5: preparing pins")
+
+            log.info("[TFT] pin init: cs")
+            p_cs = Pin(cfg.get("cs"), Pin.OUT)
+            p_cs.value(1)
+
+            # If NFC shares this SPI bus, make sure its CS is deasserted.
+            nfc_cfg = self.config.get("nfc_reader", {})
+            if nfc_cfg.get("enabled", False):
+                nfc_cs = nfc_cfg.get("cs")
+                if nfc_cs is not None:
+                    Pin(nfc_cs, Pin.OUT).value(1)
+
+            log.info("[TFT] pin init: a0/dc")
+            p_dc = Pin(cfg.get("a0"), Pin.OUT)
+            p_dc.value(0)
+
+            log.info("[TFT] pin init: reset")
+            rst_num = int(cfg.get("reset"))
+            if rst_num in (45, 46):
+                log.info(f"[TFT] warning: reset pin {rst_num} is a strapping/special pin on ESP32-S3 and may be unreliable")
+
+            p_rst = Pin(rst_num, Pin.OUT)
+            p_rst.value(1)
+
+            led_num = int(cfg.get("led", 21))
+
+
+            log.info("[TFT] init stage 2/5: creating SPI bus")
+            spi = self._get_shared_spi()
+            shared_cfg = self._shared_spi_cfg
+            if shared_cfg is None:
+                raise RuntimeError("Shared SPI config missing")
+            shared_unit = shared_cfg["spi_unit"]
+            log.info(
+                f"[TFT] shared SPI object id={id(spi)} unit={shared_unit}"
+            )
+
+            shared_kwargs = self._shared_spi_kwargs
+            if shared_kwargs is None:
+                raise RuntimeError("Shared SPI kwargs missing")
+
+            def _tft_spi_init(spi_obj):
+                spi_obj.init(**shared_kwargs)
+                nfc_cfg_local = self.config.get("nfc_reader", {})
+                if nfc_cfg_local.get("enabled", False):
+                    nfc_cs_local = nfc_cfg_local.get("cs")
+                    if nfc_cs_local is not None:
+                        Pin(nfc_cs_local, Pin.OUT).value(1)
+
+            log.info("[TFT] init stage 3/5: creating DisplayManager")
+            display = DisplayManager(
+                spi,
+                app_state=app_state,
+                cs=p_cs,
+                dc=p_dc,
+                rst=p_rst,
+                backlight_pin=led_num,
+                width=cfg.get("width", 160),
+                height=cfg.get("height", 128),
+                init_spi=_tft_spi_init,
+            )
+
+            # log.info("[TFT] init stage 4/5: enabling backlight")
+            # led_pin_num = cfg.get("led")
+            # if led_pin_num is not None:
+            #     backlight = Pin(led_pin_num, Pin.OUT)
+            #     backlight.value(1)
+            #     setattr(display, "_backlight_pin", backlight)
+
+            log.info("[TFT] init stage 5/5: ready")
+            return display
+        except Exception as e:
+            log.error(f"[TFT] init failed: {e}")
+            raise
 
     def get_nfc(self):
         cfg = self.config.get("nfc_reader", {})
@@ -40,17 +187,35 @@ class HardwareFactory:
             from jukeplayer.hardware.nfc_reader import NFCReader
             # Setup SPI dynamically from config
             log.info(f"NFC Reader: Initializing with config: {cfg}")
-            spi = SPI(
-                cfg.get("spi_unit", 1),
-                baudrate=cfg.get("baudrate", 4000000),
-                sck=Pin(cfg.get("sck", 18)),
-                mosi=Pin(cfg.get("mosi", 23)),
-                miso=Pin(cfg.get("miso", 19))
+
+            # If TFT shares this SPI bus, make sure its CS is deasserted.
+            tft_cfg = self.config.get("tft", {})
+            if tft_cfg.get("enabled", False):
+                tft_cs = tft_cfg.get("cs")
+                if tft_cs is not None:
+                    Pin(tft_cs, Pin.OUT).value(1)
+
+            spi = self._get_shared_spi()
+            shared_cfg = self._shared_spi_cfg
+            if shared_cfg is None:
+                raise RuntimeError("Shared SPI config missing")
+            shared_unit = shared_cfg["spi_unit"]
+            log.info(
+                f"[NFC] shared SPI object id={id(spi)} unit={shared_unit}"
             )
+
+            shared_kwargs = self._shared_spi_kwargs
+            if shared_kwargs is None:
+                raise RuntimeError("Shared SPI kwargs missing")
+
+            def _nfc_spi_init(spi_obj):
+                spi_obj.init(**shared_kwargs)
+
             return NFCReader(
                 spi,
                 rst_pin=cfg.get("reset", 4),
-                cs_pin=cfg.get("cs", 5)
+                cs_pin=cfg.get("cs", 5),
+                spi_init=_nfc_spi_init,
             )
         except Exception as e:
             log.error(f"Failed to init physical NFC: {e}. Falling back to Dummy NFC.")
@@ -81,7 +246,23 @@ class HardwareFactory:
             from jukeplayer.mocks.dummy_rotary import DummyRotaryIRQ
             return DummyRotaryIRQ()
 
-
+    def get_leds(self):
+        cfg = self.config.get("leds", {})
+        if not cfg.get("enabled", True):
+            log.info("LEDs: Initializing in DUMMY mode")
+            from jukeplayer.mocks.dummy_led import DummyLEDController
+            return DummyLEDController()
+        try:
+            from jukeplayer.hardware.led import LEDController
+            pins = cfg.get("pins", {})
+            leds = {}
+            for name, pin in pins.items():
+                leds[name] = LEDController(pin_number=pin)
+            return leds
+        except Exception as e:
+            log.error(f"Failed to init physical LEDs: {e}. Falling back to Dummy LEDs.")
+            from jukeplayer.mocks.dummy_led import DummyLEDController
+            return DummyLEDController()
     
     def get_pushbuttons(self):
         cfg = self.config.get("buttons", {})

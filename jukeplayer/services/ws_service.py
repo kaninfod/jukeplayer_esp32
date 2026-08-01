@@ -1,3 +1,5 @@
+from jukeplayer.core.state_constants import *
+from jukeplayer.core.ws_events import AsyncWebsocketClient
 
 class WSService:
     def __init__(self, app):
@@ -30,18 +32,19 @@ class WSService:
 
     async def handle_ping(self, payload):
         pass
-        #self.app.logger.info("Received ping, sending pong")
-
 
     async def handle_register_response(self, payload):
         # In case we receive a register_response after initial registration
         if payload.get("status") == "success":
             self.app.client_id = payload.get("client_id")
-            self.app.state["client_id"] = self.app.client_id or ""
-            self.app.state["network_status"] = "ws_connected"
+            self.app.state.set(
+                {
+                    CLIENT_ID: self.app.client_id or "",
+                    NETWORK_STATUS: "WS:OK",
+                    WS_CONNECTED: True,
+                }
+            )
             self.app.logger.info(f"✅ Client ID updated: {self.app.client_id}")
-            self.app.mqtt_service.publish_snapshot(reason="register_response")
-
 
     async def handle_current_track(self, payload):
 
@@ -59,38 +62,25 @@ class WSService:
         
         self.app.logger.info(f"Track update - {artist} / {title}  (status: {status}, volume: {volume})")
         
-        # Update OLED Scroller if available
-        
-        self.app.oled.set_volume(volume)
-        self.app.oled.set_repeat_status(repeat_status)
             
         if status == "playing":
-            self.app.oled.set_player_status("PLAY")
-            self.app.oled.set_artist(artist)
-            display_text = title if title else "Unknown"
-            self.app.oled.set_text(display_text)
+            status = "PLAY"
         elif status == "paused":
-            self.app.oled.set_player_status("PAUSE")
-            self.app.oled.set_artist("")
-            self.app.oled.set_text("Paused")
+            status = "PAUSE"
         elif status in ["stopped", "idle"]:
-            self.app.oled.set_player_status("STOP")
-            self.app.oled.set_artist("")
-            self.app.oled.set_text("Idle")
+            status = "STOP"
 
-        # Update local app state
-        self.app.state["volume"] = volume
-        self.app.state["repeat"] = repeat_status
-        self.app.state["repeat_status"] = repeat_status
-        self.app.state["title"] = title
-        self.app.state["track"] = title
-        self.app.state["artist"] = artist
-        self.app.state["album"] = album
-        self.app.state["status"] = status
-        self.app.state["player_status"] = status
-
-        # Publish state change immediately via MQTT
-        self.app.mqtt_service.publish_snapshot(reason="current_track")
+        self.app.state.set(
+            {
+                VOLUME: volume,
+                REPEAT_STATUS: repeat_status,
+                TITLE: title,
+                TRACK: title,
+                ARTIST: artist,
+                ALBUM: album,
+                PLAYER_STATUS: status
+            }
+        )
 
     async def handle_volume_changed(self, payload):
         self.app.logger.info(f"Volume update received: {payload}")
@@ -101,63 +91,48 @@ class WSService:
             volume = payload
             mute_status = None
         
-        self.app.oled.set_volume(volume)
         self.app.logger.info(f"Volume update - {volume}")
         
-        self.app.state["volume"] = volume
+        self.app.state.set({VOLUME: volume})
         if mute_status is not None:
-            self.app.state["mute_status"] = bool(mute_status)
-        self.app.mqtt_service.publish_snapshot(reason="volume_changed")
+            self.app.state.set({MUTE_STATUS: bool(mute_status)})
 
     async def handle_notification(self, payload):
-        #self.app.logger.info(f"Notification - {payload.get('message')}")
         pass
 
     async def handle_toggle_repeat_changed(self, payload):
         repeat_status = payload.get('mode')
-        
-        self.app.oled.set_repeat_status(repeat_status)
+        self.app.state.set({REPEAT_STATUS: repeat_status})
         self.app.logger.info(f"Repeat status update - {repeat_status} / {payload}")                
 
-        self.app.state["repeat"] = repeat_status
-        self.app.state["repeat_status"] = repeat_status
-        self.app.mqtt_service.publish_snapshot(reason="repeat_changed")
-
-    async def handle_mute_changed(self, payload):
-        muted = payload.get("muted") if isinstance(payload, dict) else payload
-        self.app.state["mute_status"] = bool(muted)
-        self.app.logger.info(f"Mute status update - {self.app.state['mute_status']}")
-        self.app.mqtt_service.publish_snapshot(reason="mute_changed")
+    # async def handle_mute_changed(self, payload):
+    #     muted = payload.get("muted") if isinstance(payload, dict) else payload
+    #     self.app.state.set({"mute_status": bool(muted)})
+    #     self.app.logger.info(f"Mute status update - {self.app.state.get('mute_status')}")
 
     async def handle_volume_muted(self, payload):
-        await self.handle_mute_changed(payload)
+        muted = payload.get("muted") if isinstance(payload, dict) else payload
+        self.app.state.set({MUTE_STATUS: bool(muted)})
+        self.app.logger.info(f"Mute status update - {self.app.state.get(MUTE_STATUS)}")
+        
+        # await self.handle_mute_changed(payload)
 
     async def handle_error(self, payload):
-        #self.app.logger.info(f"Server error - {payload.get('message')}")
         pass
 
     async def handle_nfc_encode_start(self, payload):
         # Receive NFC encoding command from backend
         album_id = payload.get("album_id")
-        
-        self.app.logger.info(f"NFC encode request for album_id: {album_id}")
-        
-        # Set encoding mode flag BEFORE creating task (prevents normal reads)
-        # self.app.nfc_encoding_album_id = album_id
-        
-        self.app.state["nfc_encoding_album_id"] = album_id
-        self.app.oled.set_text("Insert card to encode...")
-        self.app.logger.info(f"NFC encode ready - waiting for microswitch press to start encoding")
-        
+        self.app.logger.info(f"NFC encode ready to write album_id: {album_id} - waiting for microswitch press to start encoding")
+        self.app.state.set({NFC_ENCODING_ALBUM_ID: album_id})
+        self.app.state.set({NFC_WRITE_STATE: True})
         # now wait for the microswitch press to trigger the actual write in handle_microswitch_press, which will write to the card
 
     async def handle_nfc_encode_completed(self, payload):
-        self.app.oled.set_text("Done encoding!")
-
+        pass
 
     async def register_with_backend(self):
         """Send registration message to backend."""
-
         import time, asyncio, json
 
         try:
@@ -184,17 +159,19 @@ class WSService:
                 )
                 if response_text:
                     response_data = json.loads(response_text)
-                    
                     if response_data.get("type") == "register_response":
                         payload = response_data.get("payload", {})
                         if payload.get("status") == "success":
                             self.app.client_id = payload.get("client_id")
-                            self.app.state["client_id"] = self.app.client_id or ""
+                            self.app.state.set(
+                                {
+                                    CLIENT_ID: self.app.client_id or "",
+                                    NETWORK_STATUS: "WS:OK",
+                                    WS_CONNECTED: True,
+                                }
+                            )
                             self.app.logger.info(f"✅ Registration successful: {self.app.config['client']['name']} (ID: {self.app.client_id})")
-                            
-                            self.app.oled.set_net_status("WS:OK")
-                            self.app.state["network_status"] = "ws_connected"
-                            self.app.mqtt_service.publish_snapshot(reason="register_success")
+                            # self.app.state.set({"network_status": "WS:OK"})
                             return
                         else:
                             self.app.logger.info(f"❌ Registration failed: {payload.get('message')}")
@@ -210,7 +187,6 @@ class WSService:
         except Exception as e:
             self.app.logger.info(f"❌ Registration error: {e}")  
 
-
     async def connect_websocket(self):
         """Connect to WebSocket server with retries and register client."""
         max_attempts = 5
@@ -219,28 +195,48 @@ class WSService:
         
         for attempt in range(max_attempts):
             gc.collect()  # Prevent memory leak during long reconnect phases
+            self.app.state.set({WS_CONNECTED: False})
             
             # Check WiFi first before creating sockets or doing getaddrinfo to prevent LWIP ENOMEM leaks!
             if not wlan.isconnected():
                 self.app.logger.info(f"[CONNECT] WiFi is down! Waiting before reconnect attempt...")
-                self.app.state["network_status"] = "wifi_disconnected"
-                self.app.mqtt_service.publish_snapshot(reason="wifi_disconnected")
+                self.app.state.set({NETWORK_STATUS: "WS:ERR", WS_CONNECTED: False})
                 await asyncio.sleep(5)
                 continue
                 
             try:
+                # Recreate client if previous loop cleared it
+                if self.app.ws is None:
+                    self.app.ws = AsyncWebsocketClient(5)
+
+                free_before = gc.mem_free()
                 self.app.logger.info(f"[CONNECT] Attempting connection (attempt {attempt + 1}/{max_attempts})")
+                self.app.logger.info(f"[CONNECT] Heap before handshake: {free_before} bytes free")
                 # Add timeout so handshake doesn't hang forever
                 connected = await asyncio.wait_for(self.app.ws.handshake(self.app.server_url), timeout=5)
                 if connected:
                     self.app.logger.info(f"[CONNECT] WebSocket connected successfully")
+                    self.app.state.set({WS_CONNECTED: True, NETWORK_STATUS: "WS:OK"})
                     # Send registration message immediately after connection
-                    await self.app.ws_service.register_with_backend()
+                    # await self.app.ws_service.register_with_backend()
+                    await self.register_with_backend()
                     return
             except asyncio.TimeoutError:
                 self.app.logger.info(f"[CONNECT] Attempt {attempt + 1} timed out (5s)")
             except Exception as e:
                 self.app.logger.info(f"[CONNECT] Attempt {attempt + 1} failed: {e}")
+
+            # Ensure partial sockets/streams are torn down before retry.
+            try:
+                if self.app.ws:
+                    await self.app.ws.close()
+            except Exception:
+                pass
+
+            self.app.ws = AsyncWebsocketClient(5)
+            gc.collect()
+            self.app.logger.info(f"[CONNECT] Heap after cleanup: {gc.mem_free()} bytes free")
             await asyncio.sleep(1)
         
         self.app.logger.info(f"[CONNECT] Failed to connect after retries")            
+        self.app.state.set({NETWORK_STATUS: "WS:ERR", WS_CONNECTED: False})

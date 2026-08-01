@@ -70,10 +70,13 @@ class AsyncWebsocketClient:
         return URIInfo(protocol, host, port, path)
 
     async def handshake(self, uri, headers=[]):
+        phase = "start"
         try:
+            phase = "urlparse"
             self.uri = self.urlparse(uri)
             
             # Close existing connections cleanly
+            phase = "close_streams"
             await self._close_streams()
             
             ssl_ctx = None
@@ -81,6 +84,7 @@ class AsyncWebsocketClient:
                 ssl_ctx = True 
                 
             # Use MicroPython's native uasyncio Streams! Clean abstraction over non-blocking C-sockets.
+            phase = "open_connection"
             self.reader, self.writer = await asyncio.open_connection(
                 self.uri.hostname, 
                 self.uri.port, 
@@ -103,14 +107,17 @@ class AsyncWebsocketClient:
                 req.extend(f"{k}: {v}\r\n".encode())
             req.extend(b"\r\n")
             
+            phase = "write_handshake"
             self.writer.write(req)
             await self.writer.drain()
             
             # Wait for Server HTTP Upgrade Response
+            phase = "read_status_line"
             line = await self.reader.readline()
             if not line.startswith(b'HTTP/1.1 101 '):
                 raise Exception(f"Handshake failed: {line.decode().strip()}")
                 
+            phase = "read_headers"
             while True:
                 line = await self.reader.readline()
                 if not line or line == b'\r\n':
@@ -121,7 +128,7 @@ class AsyncWebsocketClient:
         except BaseException as e:
             # Immediately clean up memory on timeout/drop
             await self._close_streams()
-            raise e
+            raise Exception("WebSocket handshake error at {}: {!r}".format(phase, e))
 
     async def read_frame(self):
         if not self.reader:

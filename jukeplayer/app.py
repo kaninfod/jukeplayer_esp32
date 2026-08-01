@@ -1,10 +1,12 @@
+from jukeplayer.core.state_constants import *
 from jukeplayer.core.logger import log
 from jukeplayer.hardware.hardware_factory import HardwareFactory
 from jukeplayer.core.ws_events import AsyncWebsocketClient
 from jukeplayer.services.ws_service import  WSService
 from jukeplayer.services.hardware_service import HardwareService
 import asyncio
-# import time
+from jukeplayer.core.app_state import AppState
+
 
 from jukeplayer.mqtt.ha_mqtt_devices import HAMQTTService
 
@@ -26,10 +28,20 @@ def load_config():
 
 class JukeBoxApp:
     """Main application orchestrating display, NFC, API, and WebSocket."""
+
+    def _heap_mark(self, stage, collect=True):
+        """Temporary heap checkpoint logger for boot diagnostics."""
+        import gc
+        if collect:
+            gc.collect()
+        self.logger.info(
+            f"[HEAP] {stage}: free={gc.mem_free()} alloc={gc.mem_alloc()}"
+        )
     
     def __init__(self):
         self.logger = log
         self.logger.info("Initializing JukeBoxApp...")
+        #self._heap_mark("boot:start")
         
         self.config = load_config()
         
@@ -37,37 +49,35 @@ class JukeBoxApp:
 
         self.hw_service = HardwareService(self)
 
-        self.oled = factory.get_oled()
+        # Initialize MQTT service
+        self.mqtt_service = HAMQTTService(self)
+        self.mqtt_start_delay_s = int(self.config.get("mqtt", {}).get("start_delay_s", 6))
+
+        self.state = AppState()
         self.nfc = factory.get_nfc()
-        
         self.pushbuttons = factory.get_pushbuttons()
         self.hw_service.assign_button_handlers()
+
+        self.display = factory.get_display(app_state=self.state)
+        self.display.start()
 
         self.encoder = factory.get_encoder()
         self.encoder.add_listener(self.hw_service.on_encoder_change)
         
         self.debounce_task = None
 
-        self.oled.start()
+        self.state.subscribe(self.display.update)
+        self.state.subscribe(self.mqtt_service.publish_snapshot)
 
-        self.state = {
-            "title": "Idle",
-            "artist": "",
-            "album": "",
-            "track": "",
-            "status": "STOP",
-            "player_status": "idle",
-            "volume": 0,
-            "repeat": False,
-            "repeat_status": False,
-            "network_status": "ws_connecting",
-            "mute_status": False,
-            "client_id": "",
-            "memory_usage": 0,
-            "nfc_encoding_state": None,
-            "nfc_encoding_album_id": None
-        }
-         
+        self.leds = {}
+        self.leds = factory.get_leds()
+        self.leds["red"].blink(interval_ms=200)  # Turn on red LED to indicate booting
+        self.leds["green"].turn_off()
+        self.leds["blue"].turn_off()
+
+        self.logger.info("turning backlight on")
+        self.display.backlight.value(0)
+
         # Extract backend settings from config
         backend_ip = self.config["backend"]["ip"]
         backend_port = self.config["backend"]["port"]
@@ -88,28 +98,33 @@ class JukeBoxApp:
         # Memory monitoring (log every 30 seconds)
         self.last_memory_log = 0
         self.memory_log_interval = 30000  # Log memory every 30 seconds
+        self._heap_mark("boot:end")
         
-        # Initialize MQTT service
-        self.mqtt_service = HAMQTTService(self)
-            
     async def run(self):
         """Main application loop using async pattern."""
         import asyncio, gc
 
         self.logger.info("Waiting 3 seconds before WebSocket connection...")
+        self._heap_mark("run:before_wait")
         await asyncio.sleep(3)
         
         gc.collect() 
+        self._heap_mark("run:before_task_start", collect=False)
         
-        # Main event loop - run WebSocket and input handling concurrently
-        tasks = [
-            self._websocket_loop(),
-            self._telemetry_loop()
-        ]
+        # Start WS first, then stagger MQTT to reduce boot-time allocation spikes.
+        ws_task = asyncio.create_task(self._websocket_loop())
+        telemetry_task = asyncio.create_task(self._telemetry_loop())
+
         if self.mqtt_service.enabled:
-            tasks.append(self.mqtt_service.run())
-            
-        await asyncio.gather(*tasks)
+            self.logger.info(
+                f"[BOOT] Delaying MQTT start by {self.mqtt_start_delay_s}s to prioritize WS connection"
+            )
+            await asyncio.sleep(self.mqtt_start_delay_s)
+            mqtt_task = asyncio.create_task(self.mqtt_service.run())
+            await asyncio.gather(ws_task, telemetry_task, mqtt_task)
+            return
+
+        await asyncio.gather(ws_task, telemetry_task)
 
     async def _websocket_loop(self):
         """Manage WebSocket connection and receive updates."""
@@ -134,6 +149,7 @@ class JukeBoxApp:
                         await asyncio.sleep_ms(50)
                     except Exception as e:
                         self.logger.info(f"WebSocket recv error: {e}")
+                        self.state.set({NETWORK_STATUS: "WS:ERR", WS_CONNECTED: False})
                         try:
                             if hasattr(self, 'ws') and self.ws:
                                 await self.ws.close()
@@ -144,19 +160,18 @@ class JukeBoxApp:
                 
                 # Connection closed, prepare to reconnect
                 self.logger.info(f"[RECONNECT] WebSocket connection lost")
+                self.state.set({NETWORK_STATUS: "WS:ERR", WS_CONNECTED: False})
                 
             except KeyboardInterrupt:
                 # Allow keyboard interrupt to propagate
                 raise
             except Exception as e:
                 self.logger.info(f"WebSocket error: {e}")
+                self.state.set({NETWORK_STATUS: "WS:ERR", WS_CONNECTED: False})
             
             # Exponential backoff on reconnect (2s → 4s → 8s → ... → 30s)
             self.logger.info(f"Reconnecting in {reconnect_delay}s...")
-            
-            self.oled.set_net_status("WS:ERR")
-            self.state["network_status"] = "ws_error"
-            self.mqtt_service.publish_snapshot(reason="ws_error")
+            self.state.set({NETWORK_STATUS: "WS:ERR", WS_CONNECTED: False})
             await asyncio.sleep(reconnect_delay)
             reconnect_delay = min(reconnect_delay * 2, max_reconnect_delay)
 
@@ -183,19 +198,20 @@ class JukeBoxApp:
                 await asyncio.sleep(1)
 
     def _log_memory_usage(self):
-        """Log current memory usage (free and allocated)."""
-        import gc
-        try:
-            free = gc.mem_free()
-            alloc = gc.mem_alloc()
-            total = free + alloc
-            used_pct = (alloc * 100) // total if total > 0 else 0
-            self.state["memory_usage"] = used_pct
-            self.state["client_id"] = self.client_id or ""
-            self.logger.info(f"[MEM] Free: {free} bytes | Used: {used_pct}% | Client ID: {self.client_id}")
-            self.mqtt_service.publish_snapshot(reason="memory")
-        except Exception as e:
-            self.logger.info(f"[MEM] Error reading memory: {e}")
+            """Log current memory usage in KB."""
+            import gc
+            try:
+                free_kb = gc.mem_free() // 1024
+                alloc_kb = gc.mem_alloc() // 1024
+                total_kb = free_kb + alloc_kb
+                
+                # This integer math will now work better because the scale is smaller
+                used_pct = (alloc_kb * 100) // total_kb if total_kb > 0 else 0
+        
+                self.state.set({MEMORY_USAGE: used_pct, CLIENT_ID: self.client_id or ""})
+                self.logger.info(f"[MEM] Free: {free_kb} KB | Used: {used_pct}% ({alloc_kb} KB allocated)")
+            except Exception as e:
+                self.logger.info(f"[MEM] Error reading memory: {e}")
 
 async def main():
     """Entry point for async app."""

@@ -10,3 +10,4 @@ class DummyOLEDScroller:
     def set_volume(self, volume): pass
     def set_artist(self, artist): pass
     def set_text(self, title): pass
+    def update(self, state={}): pass

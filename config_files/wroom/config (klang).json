@@ -27,6 +27,15 @@
   },
   "dummy_mode": true,
   "hardware": {
+    "spi": {
+      "spi_unit": 1,
+      "baudrate": 4000000,
+      "polarity": 0,
+      "phase": 0,
+      "sck": 18,
+      "mosi": 23,
+      "miso": 19
+    },
     "oled": {
       "enabled": true,
       "sda": 13,
@@ -36,13 +45,6 @@
     },
     "nfc_reader": {
       "enabled": true,
-      "spi_unit": 1,
-      "baudrate": 4000000,
-      "polarity": 0,
-      "phase": 0,
-      "sck": 18,
-      "mosi": 23,
-      "miso": 19,
       "reset": 4,
       "cs": 5
     },
