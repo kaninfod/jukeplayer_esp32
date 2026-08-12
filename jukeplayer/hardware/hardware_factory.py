@@ -4,6 +4,7 @@ from machine import Pin, SPI, I2C
 
 class HardwareFactory:
     def __init__(self, config):
+        self._parent_config = config
         self.config = config.get("hardware", {})
         self._shared_spi = None
         self._shared_spi_cfg = None
@@ -18,9 +19,13 @@ class HardwareFactory:
         if missing:
             raise ValueError(f"hardware.spi missing required keys: {', '.join(missing)}")
 
+        base_baudrate = int(spi_cfg.get("baudrate", 4000000))
+        self._display_baudrate = int(spi_cfg.get("display_baudrate", base_baudrate))
+        self._nfc_baudrate = int(spi_cfg.get("nfc_baudrate", base_baudrate))
+
         self._shared_spi_cfg = {
             "spi_unit": int(spi_cfg.get("spi_unit")),
-            "baudrate": int(spi_cfg.get("baudrate", 4000000)),
+            "baudrate": base_baudrate,
             "polarity": int(spi_cfg.get("polarity", 0)),
             "phase": int(spi_cfg.get("phase", 0)),
             "sck": int(spi_cfg.get("sck")),
@@ -58,6 +63,13 @@ class HardwareFactory:
             raise RuntimeError("Shared SPI not initialized")
         spi.init(**kwargs)
         return spi
+
+    def _get_spi_kwargs(self, baudrate=None):
+        """Return a copy of the shared SPI kwargs with an optional baudrate override."""
+        kwargs = dict(self._shared_spi_kwargs)
+        if baudrate is not None:
+            kwargs["baudrate"] = baudrate
+        return kwargs
         
     def get_display(self, app_state):
         tft_cfg = self.config.get("tft", {})
@@ -87,12 +99,19 @@ class HardwareFactory:
             return DummyOLEDScroller()
 
     def get_tft_display(self, app_state):
-        """Initialize ST7735 TFT display manager without any OLED fallback path."""
+        """Initialize TFT display manager selected by hardware.tft.driver."""
         cfg = self.config.get("tft", {})
         if not cfg.get("enabled", True):
             raise RuntimeError("TFT display is disabled in config")
 
-        from jukeplayer.hardware.st7735r.display_manager import DisplayManager
+        # Select TFT driver: "st7735r", "ili9488" (nano-gui), or "ili9488_lvgl".
+        driver = cfg.get("driver", "st7735r")
+        if driver == "ili9488":
+            from jukeplayer.hardware.ili9488.display_manager import DisplayManager
+        elif driver == "ili9488_lvgl":
+            from jukeplayer.hardware.lvgl.display_manager import DisplayManager
+        else:
+            from jukeplayer.hardware.st7735r.display_manager import DisplayManager
 
         required = ("cs", "a0", "reset")
         missing = [k for k in required if cfg.get(k) is None]
@@ -100,7 +119,7 @@ class HardwareFactory:
             raise ValueError(f"TFT config missing required pins: {', '.join(missing)}")
 
         try:
-            log.info("[TFT] init stage 1/5: preparing pins")
+            log.info(f"[TFT] init stage 1/5: preparing pins for driver '{driver}'")
 
             log.info("[TFT] pin init: cs")
             p_cs = Pin(cfg.get("cs"), Pin.OUT)
@@ -143,7 +162,8 @@ class HardwareFactory:
                 raise RuntimeError("Shared SPI kwargs missing")
 
             def _tft_spi_init(spi_obj):
-                spi_obj.init(**shared_kwargs)
+                display_kwargs = self._get_spi_kwargs(self._display_baudrate)
+                spi_obj.init(**display_kwargs)
                 nfc_cfg_local = self.config.get("nfc_reader", {})
                 if nfc_cfg_local.get("enabled", False):
                     nfc_cs_local = nfc_cfg_local.get("cs")
@@ -151,17 +171,37 @@ class HardwareFactory:
                         Pin(nfc_cs_local, Pin.OUT).value(1)
 
             log.info("[TFT] init stage 3/5: creating DisplayManager")
-            display = DisplayManager(
-                spi,
-                app_state=app_state,
-                cs=p_cs,
-                dc=p_dc,
-                rst=p_rst,
-                backlight_pin=led_num,
-                width=cfg.get("width", 160),
-                height=cfg.get("height", 128),
-                init_spi=_tft_spi_init,
-            )
+            backend = self._parent_config.get("backend", {})
+            cover_base_url = f"http://{backend.get('ip', '127.0.0.1')}:{backend.get('port', 8000)}"
+
+            display_kwargs = {
+                "spi": spi,
+                "app_state": app_state,
+                "cs": p_cs,
+                "dc": p_dc,
+                "rst": p_rst,
+                "backlight_pin": led_num,
+                "width": cfg.get("width", 160),
+                "height": cfg.get("height", 128),
+                "usd": cfg.get("usd", False),
+                "mirror": cfg.get("mirror", False),
+                "color_invert": cfg.get("color_invert", False),
+                "cover_base_url": cover_base_url,
+            }
+
+            # LVGL driver handles SPI speed switching internally, so pass the
+            # target baudrate and the NFC chip-select to keep deasserted.
+            if driver == "ili9488_lvgl":
+                display_kwargs["baudrate"] = self._display_baudrate
+                nfc_cfg = self.config.get("nfc_reader", {})
+                if nfc_cfg.get("enabled", False):
+                    nfc_cs_pin = nfc_cfg.get("cs")
+                    if nfc_cs_pin is not None:
+                        display_kwargs["nfc_cs"] = nfc_cs_pin
+            else:
+                display_kwargs["init_spi"] = _tft_spi_init
+
+            display = DisplayManager(**display_kwargs)
 
             # log.info("[TFT] init stage 4/5: enabling backlight")
             # led_pin_num = cfg.get("led")
@@ -209,7 +249,8 @@ class HardwareFactory:
                 raise RuntimeError("Shared SPI kwargs missing")
 
             def _nfc_spi_init(spi_obj):
-                spi_obj.init(**shared_kwargs)
+                nfc_kwargs = self._get_spi_kwargs(self._nfc_baudrate)
+                spi_obj.init(**nfc_kwargs)
 
             return NFCReader(
                 spi,
@@ -274,7 +315,7 @@ class HardwareFactory:
         try:
             from jukeplayer.hardware.pushbutton import Pushbutton
 
-            log.debug(f"Pushbuttons: Initializing with config: {cfg.get("pins")}")
+            log.debug(f"Pushbuttons: Initializing with config: {cfg.get('pins')}")
             pushbuttons = []
             
             for action_name, button_cfg in cfg.get("pins", {}).items():
