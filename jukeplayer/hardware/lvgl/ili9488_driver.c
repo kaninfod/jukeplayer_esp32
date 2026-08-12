@@ -144,6 +144,7 @@ static void _set_addr_window(int32_t x1, int32_t y1, int32_t x2, int32_t y2) {
 }
 
 static void _init_sequence(void) {
+    _INFO("DRIVER BUILD %s %s", __DATE__, __TIME__);
     _INFO("init sequence start");
     _hw_reset();
     _INFO("after reset");
