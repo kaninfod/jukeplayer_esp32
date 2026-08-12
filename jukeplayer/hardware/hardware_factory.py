@@ -105,7 +105,9 @@ class HardwareFactory:
             raise RuntimeError("TFT display is disabled in config")
 
         # Select TFT driver: "st7735r", "ili9488" (nano-gui), or "ili9488_lvgl".
-        driver = cfg.get("driver", "st7735r")
+        # TEMPORARY RECOVERY OVERRIDE: force old ili9488 driver while debugging LVGL.
+        driver = "ili9488"
+        # driver = cfg.get("driver", "st7735r")
         if driver == "ili9488":
             from jukeplayer.hardware.ili9488.display_manager import DisplayManager
         elif driver == "ili9488_lvgl":
