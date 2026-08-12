@@ -9,6 +9,7 @@
 #include "py/stream.h"
 #include "py/mphal.h"
 #include "py/obj.h"
+#include "extmod/modmachine.h"
 
 #include "lvgl.h"
 
@@ -61,9 +62,10 @@ static inline void _dc_data(void) {
 }
 
 static int _spi_write(const void *buf, size_t len) {
-    int err = 0;
-    mp_stream_write_exactly(g_state.spi, buf, len, &err);
-    return err;
+    mp_obj_base_t *s = (mp_obj_base_t *)MP_OBJ_TO_PTR(g_state.spi);
+    mp_machine_spi_p_t *spi_p = (mp_machine_spi_p_t *)MP_OBJ_TYPE_GET_SLOT(s->type, protocol);
+    spi_p->transfer(s, len, (const uint8_t *)buf, NULL);
+    return 0;
 }
 
 static void _write_cmd(uint8_t cmd) {
