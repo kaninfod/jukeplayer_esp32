@@ -97,15 +97,12 @@ static void _prepare_display_spi(uint32_t baudrate) {
     }
 
     // Switch baudrate via spi.init(baudrate=...).
-    mp_obj_t dest[2];
+    // mp_load_method returns bound method in dest[0] with self in dest[1].
+    mp_obj_t dest[4];
     mp_load_method(g_state.spi, MP_QSTR_init, dest);
-
-    mp_obj_t args[3];
-    args[0] = dest[1];                       // self
-    args[1] = MP_OBJ_NEW_QSTR(MP_QSTR_baudrate);
-    args[2] = mp_obj_new_int(baudrate);
-
-    mp_call_function_n_kw(dest[0], 1, 1, args);
+    dest[2] = MP_OBJ_NEW_QSTR(MP_QSTR_baudrate);
+    dest[3] = mp_obj_new_int(baudrate);
+    mp_call_method_n_kw(0, 1, dest);
 }
 
 // ---------------------------------------------------------------------------

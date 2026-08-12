@@ -37,6 +37,8 @@
   "hardware": {
     "spi": {
       "spi_unit": 1,
+      "display_baudrate": 4000000,
+      "nfc_baudrate": 4000000,
       "baudrate": 4000000,
       "polarity": 0,
       "phase": 0,
@@ -56,7 +58,34 @@
       "width": 128,
       "height": 64
     },
+
     "tft": {
+      "enabled": true,
+      "driver": "ili9488",
+      "cs": 5,
+      "a0": 7,
+      "reset": 4,
+      "led": 15,
+      "width": 480,
+      "height": 320,
+      "usd": false,
+      "mirror": false,
+      "color_invert": false
+    },
+    "tft_lvgl": {
+      "enabled": true,
+      "driver": "ili9488_lvgl",
+      "cs": 5,
+      "a0": 7,
+      "reset": 4,
+      "led": 15,
+      "width": 480,
+      "height": 320,
+      "usd": false,
+      "mirror": false,
+      "color_invert": false
+    },
+    "tft_old": {
       "enabled": true,
       "interface": "spi",
       "cs": 5,
