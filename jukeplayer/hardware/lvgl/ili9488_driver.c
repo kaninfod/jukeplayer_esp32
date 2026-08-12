@@ -1,12 +1,9 @@
-// ILI9488 display driver for LVGL v9 on MicroPython / ESP32.
+// Minimal ILI9488 display driver for LVGL v9 on MicroPython / ESP32.
 //
-// Compiled as a user C module. It creates an LVGL v9 display with a flush
-// callback that talks directly to the panel over a shared machine.SPI bus,
-// switching SPI speed and deasserting the NFC chip-select as needed.
-//
-// Color: LVGL renders internally as RGB565. The flush callback expands each
-// pixel to RGB666 (18-bit) because the ILI9488 SPI interface requires 3
-// bytes per pixel.
+// The SPI bus must already be configured at the desired display speed before
+// ili9488_lvgl.init() is called. This driver does NOT call back into Python.
+// It only handles low-level pin toggling, ILI9488 init commands, and the LVGL
+// flush callback.
 
 #include "py/runtime.h"
 #include "py/stream.h"
@@ -17,9 +14,8 @@
 
 extern mp_obj_t mp_pin_make_new(const mp_obj_type_t *type, size_t n_args, size_t n_kw, const mp_obj_t *args);
 
-// Helper for debug prints from C.
+// Debug helper (kept minimal).
 #define _INFO(fmt, ...)  mp_printf(&mp_plat_print, "[ILI9488] " fmt "\n", ##__VA_ARGS__)
-#define _ERR(fmt, ...)   mp_printf(&mp_plat_print, "[ILI9488 ERR] " fmt "\n", ##__VA_ARGS__)
 
 // ---------------------------------------------------------------------------
 // Driver state
@@ -27,13 +23,11 @@ extern mp_obj_t mp_pin_make_new(const mp_obj_type_t *type, size_t n_args, size_t
 
 typedef struct {
     mp_obj_t spi;                       // machine.SPI object
-    mp_hal_pin_obj_t cs;                // chip-select
-    mp_hal_pin_obj_t dc;                // data/command
-    mp_hal_pin_obj_t rst;               // reset
-    mp_hal_pin_obj_t nfc_cs;            // NFC chip-select (kept high during display ops)
+    mp_hal_pin_obj_t cs;              // chip-select
+    mp_hal_pin_obj_t dc;              // data/command
+    mp_hal_pin_obj_t rst;             // reset
+    mp_hal_pin_obj_t nfc_cs;          // NFC chip-select (kept high during display ops)
     bool has_nfc_cs;
-    mp_obj_t spi_init_cb;               // Python callback to switch SPI speed
-    uint32_t baudrate;                  // Display SPI speed
     int32_t width;
     int32_t height;
     bool usd;
@@ -41,7 +35,7 @@ typedef struct {
     bool color_invert;
 
     lv_display_t *disp;
-    uint8_t *linebuf;                   // Temporary RGB666 line buffer
+    uint8_t *linebuf;                 // Temporary RGB666 line buffer
 } ili9488_state_t;
 
 static ili9488_state_t g_state;
@@ -51,19 +45,19 @@ static ili9488_state_t g_state;
 // ---------------------------------------------------------------------------
 
 static inline void _cs_low(void) {
-    mp_hal_pin_od_low(g_state.cs);
+    mp_hal_pin_write(g_state.cs, 0);
 }
 
 static inline void _cs_high(void) {
-    mp_hal_pin_od_high(g_state.cs);
+    mp_hal_pin_write(g_state.cs, 1);
 }
 
 static inline void _dc_cmd(void) {
-    mp_hal_pin_od_low(g_state.dc);
+    mp_hal_pin_write(g_state.dc, 0);
 }
 
 static inline void _dc_data(void) {
-    mp_hal_pin_od_high(g_state.dc);
+    mp_hal_pin_write(g_state.dc, 1);
 }
 
 static int _spi_write(const void *buf, size_t len) {
@@ -90,25 +84,14 @@ static void _sleep_ms(uint32_t ms) {
     mp_hal_delay_ms(ms);
 }
 
-// Switch SPI to display speed and make sure NFC CS is high.
-static void _prepare_display_spi(uint32_t baudrate) {
-    _INFO("prepare spi entered (no-op for test)");
-    (void)baudrate;
-    // Deassert NFC chip-select if configured.
-    if (g_state.has_nfc_cs) {
-        mp_hal_pin_od_high(g_state.nfc_cs);
-    }
-    // NOTE: speed switching disabled for hang diagnosis.
-}
-
 // ---------------------------------------------------------------------------
 // ILI9488 initialization and window setup
 // ---------------------------------------------------------------------------
 
 static void _hw_reset(void) {
-    mp_hal_pin_od_low(g_state.rst);
+    mp_hal_pin_write(g_state.rst, 0);
     _sleep_ms(50);
-    mp_hal_pin_od_high(g_state.rst);
+    mp_hal_pin_write(g_state.rst, 1);
     _sleep_ms(50);
 }
 
@@ -130,13 +113,7 @@ static void _set_addr_window(int32_t x1, int32_t y1, int32_t x2, int32_t y2) {
 }
 
 static void _init_sequence(void) {
-    _INFO("init sequence start");
     _hw_reset();
-    _INFO("after reset");
-
-    _INFO("about to prepare spi");
-    _prepare_display_spi(4000000);  // Use slow 4 MHz for init commands.
-    _INFO("spi switched to 4 MHz for init");
 
     _write_cmd(0x01);  // SWRESET
     _sleep_ms(100);
@@ -150,7 +127,6 @@ static void _init_sequence(void) {
         _write_data(&fmt, 1);
     }
 
-    // Column/page range defaults to full screen.
     {
         uint8_t full[4] = {0, 0, (uint8_t)((g_state.width - 1) >> 8), (uint8_t)((g_state.width - 1) & 0xFF)};
         _write_cmd(0x2A);
@@ -162,13 +138,10 @@ static void _init_sequence(void) {
         _write_data(full, 4);
     }
 
-    // Memory access control.
     uint8_t madctl;
     if (g_state.width > g_state.height) {
-        // Landscape
         madctl = g_state.usd ? 0xE8 : 0x28;
     } else {
-        // Portrait
         madctl = g_state.usd ? 0x48 : 0x88;
     }
     if (g_state.mirror) {
@@ -179,7 +152,6 @@ static void _init_sequence(void) {
 
     _write_cmd(0x11);  // Sleep out
     _write_cmd(0x29);  // Display on
-    _INFO("init sequence complete");
 }
 
 // ---------------------------------------------------------------------------
@@ -194,11 +166,13 @@ static void ili9488_flush_cb(lv_display_t *disp, const lv_area_t *area, uint8_t 
     int32_t x1 = area->x1;
     int32_t y1 = area->y1;
 
-    _prepare_display_spi(g_state.baudrate);
+    if (g_state.has_nfc_cs) {
+        mp_hal_pin_write(g_state.nfc_cs, 1);
+    }
+
     _set_addr_window(x1, y1, area->x2, area->y2);
     _write_cmd(0x2C);  // Memory write
 
-    // px_map is RGB565 data (2 bytes per pixel). Convert to RGB666 and send.
     uint8_t *lb = g_state.linebuf;
     size_t row_rgb666_len = (size_t)w * 3;
 
@@ -217,7 +191,6 @@ static void ili9488_flush_cb(lv_display_t *disp, const lv_area_t *area, uint8_t 
             uint8_t g6 = (c >> 5) & 0x3F;
             uint8_t b5 = c & 0x1F;
 
-            // Expand 565 -> 666.
             *dst++ = (r5 << 1) | (r5 >> 4);   // R
             *dst++ = g6;                       // G
             *dst++ = (b5 << 1) | (b5 >> 4);   // B
@@ -244,7 +217,7 @@ static mp_obj_t ili9488_lvgl_init(size_t n_args, const mp_obj_t *pos_args, mp_ma
         ARG_spi, ARG_cs, ARG_dc, ARG_rst,
         ARG_width, ARG_height,
         ARG_usd, ARG_mirror, ARG_color_invert,
-        ARG_baudrate, ARG_nfc_cs, ARG_spi_init_cb, ARG_buffer_lines
+        ARG_nfc_cs, ARG_buffer_lines
     };
 
     static const mp_arg_t allowed_args[] = {
@@ -257,9 +230,7 @@ static mp_obj_t ili9488_lvgl_init(size_t n_args, const mp_obj_t *pos_args, mp_ma
         { MP_QSTR_usd,            MP_ARG_BOOL,                   {.u_bool = false} },
         { MP_QSTR_mirror,         MP_ARG_BOOL,                   {.u_bool = false} },
         { MP_QSTR_color_invert,   MP_ARG_BOOL,                   {.u_bool = false} },
-        { MP_QSTR_baudrate,       MP_ARG_INT,                    {.u_int = 24000000} },
         { MP_QSTR_nfc_cs,         MP_ARG_OBJ,                    {.u_obj = mp_const_none} },
-        { MP_QSTR_spi_init_cb,    MP_ARG_OBJ,                    {.u_obj = mp_const_none} },
         { MP_QSTR_buffer_lines,   MP_ARG_INT,                    {.u_int = 40} },
     };
 
@@ -287,10 +258,9 @@ static mp_obj_t ili9488_lvgl_init(size_t n_args, const mp_obj_t *pos_args, mp_ma
     g_state.usd = args[ARG_usd].u_bool;
     g_state.mirror = args[ARG_mirror].u_bool;
     g_state.color_invert = args[ARG_color_invert].u_bool;
-    g_state.baudrate = (uint32_t)args[ARG_baudrate].u_int;
-    g_state.spi_init_cb = args[ARG_spi_init_cb].u_obj;
 
-    _INFO("setting initial pin states");
+    _INFO("init start");
+
     mp_hal_pin_write(g_state.cs, 1);
     mp_hal_pin_write(g_state.dc, 0);
     mp_hal_pin_write(g_state.rst, 1);
@@ -298,18 +268,13 @@ static mp_obj_t ili9488_lvgl_init(size_t n_args, const mp_obj_t *pos_args, mp_ma
         mp_hal_pin_write(g_state.nfc_cs, 1);
     }
 
-    // Initialize the panel hardware.
-    _INFO("starting panel init sequence");
     _init_sequence();
 
-    // Color invert if requested.
     if (g_state.color_invert) {
-        _write_cmd(0x21);  // Display inversion on
+        _write_cmd(0x21);
     }
 
     uint32_t buffer_lines = (uint32_t)args[ARG_buffer_lines].u_int;
-
-    // Allocate draw buffer in RGB565 (2 bytes per pixel).
     size_t buf_pixels = (size_t)g_state.width * buffer_lines;
     size_t buf_bytes = buf_pixels * 2;
     uint8_t *buf1 = m_new(uint8_t, buf_bytes);
@@ -317,20 +282,17 @@ static mp_obj_t ili9488_lvgl_init(size_t n_args, const mp_obj_t *pos_args, mp_ma
         mp_raise_OSError(MP_ENOMEM);
     }
 
-    // Allocate RGB666 line buffer (worst case: full width).
     size_t linebuf_bytes = (size_t)g_state.width * 3;
     g_state.linebuf = m_new(uint8_t, linebuf_bytes);
     if (g_state.linebuf == NULL) {
         mp_raise_OSError(MP_ENOMEM);
     }
 
-    // Create LVGL v9 display.
-    _INFO("creating lvgl display");
     g_state.disp = lv_display_create(g_state.width, g_state.height);
     lv_display_set_flush_cb(g_state.disp, ili9488_flush_cb);
     lv_display_set_buffers(g_state.disp, buf1, NULL, buf_bytes, LV_DISPLAY_RENDER_MODE_PARTIAL);
-    _INFO("display registration complete");
 
+    _INFO("init done");
     return mp_const_none;
 }
 static MP_DEFINE_CONST_FUN_OBJ_KW(ili9488_lvgl_init_obj, 0, ili9488_lvgl_init);

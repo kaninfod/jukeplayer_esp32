@@ -179,7 +179,9 @@ class JukeBoxApp:
     async def _telemetry_loop(self):
         """Handle background telemetry and timed tasks."""
         import time, asyncio
-        
+
+        logger = getattr(self, 'logger', log)
+
         while True:
             try:
                 # Memory monitoring every 30 seconds
@@ -187,31 +189,32 @@ class JukeBoxApp:
                 if time.ticks_diff(now, self.last_memory_log) >= self.memory_log_interval:
                     self.last_memory_log = now
                     self._log_memory_usage()
-                
+
                 # We can sleep longer here now since it isn't checking rapid knob turns
                 await asyncio.sleep(1)
-                
+
             except KeyboardInterrupt:
                 raise
             except Exception as e:
-                self.logger.info(f"Telemetry loop error: {e}")
+                logger.info(f"Telemetry loop error: {e}")
                 await asyncio.sleep(1)
 
     def _log_memory_usage(self):
-            """Log current memory usage in KB."""
-            import gc
-            try:
-                free_kb = gc.mem_free() // 1024
-                alloc_kb = gc.mem_alloc() // 1024
-                total_kb = free_kb + alloc_kb
-                
-                # This integer math will now work better because the scale is smaller
-                used_pct = (alloc_kb * 100) // total_kb if total_kb > 0 else 0
-        
-                self.state.set({MEMORY_USAGE: used_pct, CLIENT_ID: self.client_id or ""})
-                self.logger.info(f"[MEM] Free: {free_kb} KB | Used: {used_pct}% ({alloc_kb} KB allocated)")
-            except Exception as e:
-                self.logger.info(f"[MEM] Error reading memory: {e}")
+        """Log current memory usage in KB."""
+        import gc
+        logger = getattr(self, 'logger', log)
+        try:
+            free_kb = gc.mem_free() // 1024
+            alloc_kb = gc.mem_alloc() // 1024
+            total_kb = free_kb + alloc_kb
+
+            # This integer math will now work better because the scale is smaller
+            used_pct = (alloc_kb * 100) // total_kb if total_kb > 0 else 0
+
+            self.state.set({MEMORY_USAGE: used_pct, CLIENT_ID: self.client_id or ""})
+            logger.info(f"[MEM] Free: {free_kb} KB | Used: {used_pct}% ({alloc_kb} KB allocated)")
+        except Exception as e:
+            logger.info(f"[MEM] Error reading memory: {e}")
 
 async def main():
     """Entry point for async app."""

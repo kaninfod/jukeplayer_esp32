@@ -51,14 +51,12 @@ class DisplayManager:
 
         log.info(f"[LVGL] creating display {width}x{height}")
 
-        # Register the ILI9488 hardware with LVGL. The C driver stores the SPI
-        # object and handles CS/DC and RGB666 output. SPI speed switching is
-        # done via a Python callback so it runs in a safe runtime context.
-        def spi_init(baudrate):
-            spi.init(baudrate=baudrate)
-            if nfc_cs is not None:
-                from machine import Pin
-                Pin(nfc_cs, Pin.OUT).value(1)
+        # Set the shared SPI bus to the display speed before the C driver
+        # takes over. The C driver will not switch speeds itself.
+        spi.init(baudrate=spi_baudrate)
+        if nfc_cs is not None:
+            from machine import Pin
+            Pin(nfc_cs, Pin.OUT).value(1)
 
         ili9488_lvgl.init(
             spi=spi,
@@ -70,9 +68,7 @@ class DisplayManager:
             usd=usd,
             mirror=mirror,
             color_invert=color_invert,
-            baudrate=spi_baudrate,
             nfc_cs=nfc_cs,
-            spi_init_cb=spi_init,
         )
 
         # Backlight control (active low on many panels, but we keep the same
