@@ -192,7 +192,7 @@ class HardwareFactory:
             # LVGL driver handles SPI speed switching internally, so pass the
             # target baudrate and the NFC chip-select to keep deasserted.
             if driver == "ili9488_lvgl":
-                display_kwargs["baudrate"] = self._display_baudrate
+                display_kwargs["spi_baudrate"] = self._display_baudrate
                 nfc_cfg = self.config.get("nfc_reader", {})
                 if nfc_cfg.get("enabled", False):
                     nfc_cs_pin = nfc_cfg.get("cs")

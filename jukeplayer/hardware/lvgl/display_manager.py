@@ -37,6 +37,8 @@ class DisplayManager:
         color_invert=False,
         init_spi=None,
         cover_base_url=None,
+        spi_baudrate=24000000,
+        nfc_cs=None,
     ):
         if lv is None:
             raise RuntimeError("LVGL module not available in firmware")
@@ -61,7 +63,8 @@ class DisplayManager:
             usd=usd,
             mirror=mirror,
             color_invert=color_invert,
-            init_spi=init_spi,
+            baudrate=spi_baudrate,
+            nfc_cs=nfc_cs,
         )
 
         # Backlight control (active low on many panels, but we keep the same
