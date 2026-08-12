@@ -15,6 +15,8 @@
 
 #include "lvgl.h"
 
+extern mp_obj_t mp_pin_make_new(const mp_obj_type_t *type, size_t n_args, size_t n_kw, const mp_obj_t *args);
+
 // Helper for debug prints from C.
 #define _INFO(fmt, ...)  mp_printf(&mp_plat_print, "[ILI9488] " fmt "\n", ##__VA_ARGS__)
 #define _ERR(fmt, ...)   mp_printf(&mp_plat_print, "[ILI9488 ERR] " fmt "\n", ##__VA_ARGS__)
