@@ -51,6 +51,11 @@ class DisplayManager:
 
         log.info(f"[LVGL] creating display {width}x{height}")
 
+        # Initialize LVGL once before any other LVGL calls.
+        if not lv.is_initialized():
+            lv.init()
+            log.info("[LVGL] initialized")
+
         # Set the shared SPI bus to the display speed before the C driver
         # takes over. The C driver will not switch speeds itself.
         spi.init(baudrate=spi_baudrate)
