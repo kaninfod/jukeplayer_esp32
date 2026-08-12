@@ -92,27 +92,18 @@ static void _sleep_ms(uint32_t ms) {
 
 // Switch SPI to display speed and make sure NFC CS is high.
 static void _prepare_display_spi(uint32_t baudrate) {
-    _INFO("prepare spi start baud=%lu", (unsigned long)baudrate);
-
     // Deassert NFC chip-select if configured.
     if (g_state.has_nfc_cs) {
-        _INFO("prepare spi: driving nfc_cs high");
         mp_hal_pin_od_high(g_state.nfc_cs);
     }
 
     // Switch baudrate via Python callback if provided.
     if (g_state.spi_init_cb != mp_const_none) {
-        _INFO("prepare spi: calling cb");
         mp_obj_t args[2];
         args[0] = g_state.spi_init_cb;
         args[1] = mp_obj_new_int(baudrate);
         mp_call_function_n_kw(args[0], 1, 0, args + 1);
-        _INFO("prepare spi: cb returned");
-    } else {
-        _INFO("prepare spi: no callback");
     }
-
-    _INFO("prepare spi end");
 }
 
 // ---------------------------------------------------------------------------
@@ -144,11 +135,11 @@ static void _set_addr_window(int32_t x1, int32_t y1, int32_t x2, int32_t y2) {
 }
 
 static void _init_sequence(void) {
-    _INFO("DRIVER BUILD %s %s", __DATE__, __TIME__);
     _INFO("init sequence start");
     _hw_reset();
     _INFO("after reset");
 
+    _INFO("about to prepare spi");
     _prepare_display_spi(4000000);  // Use slow 4 MHz for init commands.
     _INFO("spi switched to 4 MHz for init");
 
