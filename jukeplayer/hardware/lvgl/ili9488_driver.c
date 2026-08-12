@@ -92,18 +92,13 @@ static void _sleep_ms(uint32_t ms) {
 
 // Switch SPI to display speed and make sure NFC CS is high.
 static void _prepare_display_spi(uint32_t baudrate) {
+    _INFO("prepare spi entered (no-op for test)");
+    (void)baudrate;
     // Deassert NFC chip-select if configured.
     if (g_state.has_nfc_cs) {
         mp_hal_pin_od_high(g_state.nfc_cs);
     }
-
-    // Switch baudrate via Python callback if provided.
-    if (g_state.spi_init_cb != mp_const_none) {
-        mp_obj_t args[2];
-        args[0] = g_state.spi_init_cb;
-        args[1] = mp_obj_new_int(baudrate);
-        mp_call_function_n_kw(args[0], 1, 0, args + 1);
-    }
+    // NOTE: speed switching disabled for hang diagnosis.
 }
 
 // ---------------------------------------------------------------------------
