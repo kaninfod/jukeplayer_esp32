@@ -32,6 +32,7 @@ typedef struct {
     mp_hal_pin_obj_t rst;               // reset
     mp_hal_pin_obj_t nfc_cs;            // NFC chip-select (kept high during display ops)
     bool has_nfc_cs;
+    mp_obj_t spi_init_cb;               // Python callback to switch SPI speed
     uint32_t baudrate;                  // Display SPI speed
     int32_t width;
     int32_t height;
@@ -96,13 +97,13 @@ static void _prepare_display_spi(uint32_t baudrate) {
         mp_hal_pin_od_high(g_state.nfc_cs);
     }
 
-    // Switch baudrate via spi.init(baudrate=...).
-    // mp_load_method returns bound method in dest[0] with self in dest[1].
-    mp_obj_t dest[4];
-    mp_load_method(g_state.spi, MP_QSTR_init, dest);
-    dest[2] = MP_OBJ_NEW_QSTR(MP_QSTR_baudrate);
-    dest[3] = mp_obj_new_int(baudrate);
-    mp_call_method_n_kw(0, 1, dest);
+    // Switch baudrate via Python callback if provided.
+    if (g_state.spi_init_cb != mp_const_none) {
+        mp_obj_t args[2];
+        args[0] = g_state.spi_init_cb;
+        args[1] = mp_obj_new_int(baudrate);
+        mp_call_function_n_kw(args[0], 1, 0, args + 1);
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -247,7 +248,7 @@ static mp_obj_t ili9488_lvgl_init(size_t n_args, const mp_obj_t *pos_args, mp_ma
         ARG_spi, ARG_cs, ARG_dc, ARG_rst,
         ARG_width, ARG_height,
         ARG_usd, ARG_mirror, ARG_color_invert,
-        ARG_baudrate, ARG_nfc_cs, ARG_buffer_lines
+        ARG_baudrate, ARG_nfc_cs, ARG_spi_init_cb, ARG_buffer_lines
     };
 
     static const mp_arg_t allowed_args[] = {
@@ -262,6 +263,7 @@ static mp_obj_t ili9488_lvgl_init(size_t n_args, const mp_obj_t *pos_args, mp_ma
         { MP_QSTR_color_invert,   MP_ARG_BOOL,                   {.u_bool = false} },
         { MP_QSTR_baudrate,       MP_ARG_INT,                    {.u_int = 24000000} },
         { MP_QSTR_nfc_cs,         MP_ARG_OBJ,                    {.u_obj = mp_const_none} },
+        { MP_QSTR_spi_init_cb,    MP_ARG_OBJ,                    {.u_obj = mp_const_none} },
         { MP_QSTR_buffer_lines,   MP_ARG_INT,                    {.u_int = 40} },
     };
 
@@ -290,6 +292,7 @@ static mp_obj_t ili9488_lvgl_init(size_t n_args, const mp_obj_t *pos_args, mp_ma
     g_state.mirror = args[ARG_mirror].u_bool;
     g_state.color_invert = args[ARG_color_invert].u_bool;
     g_state.baudrate = (uint32_t)args[ARG_baudrate].u_int;
+    g_state.spi_init_cb = args[ARG_spi_init_cb].u_obj;
 
     _INFO("setting initial pin states");
     mp_hal_pin_write(g_state.cs, 1);
