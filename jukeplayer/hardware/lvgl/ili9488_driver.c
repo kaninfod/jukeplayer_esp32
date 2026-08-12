@@ -15,6 +15,10 @@
 
 #include "lvgl.h"
 
+// Helper for debug prints from C.
+#define _INFO(fmt, ...)  mp_printf(&mp_plat_print, "[ILI9488] " fmt "\n", ##__VA_ARGS__)
+#define _ERR(fmt, ...)   mp_printf(&mp_plat_print, "[ILI9488 ERR] " fmt "\n", ##__VA_ARGS__)
+
 // ---------------------------------------------------------------------------
 // Driver state
 // ---------------------------------------------------------------------------
@@ -84,7 +88,7 @@ static void _sleep_ms(uint32_t ms) {
 }
 
 // Switch SPI to display speed and make sure NFC CS is high.
-static void _prepare_display_spi(void) {
+static void _prepare_display_spi(uint32_t baudrate) {
     // Deassert NFC chip-select if configured.
     if (g_state.has_nfc_cs) {
         mp_hal_pin_od_high(g_state.nfc_cs);
@@ -97,7 +101,7 @@ static void _prepare_display_spi(void) {
     mp_obj_t args[3];
     args[0] = dest[1];                       // self
     args[1] = MP_OBJ_NEW_QSTR(MP_QSTR_baudrate);
-    args[2] = mp_obj_new_int(g_state.baudrate);
+    args[2] = mp_obj_new_int(baudrate);
 
     mp_call_function_n_kw(dest[0], 1, 1, args);
 }
@@ -131,7 +135,12 @@ static void _set_addr_window(int32_t x1, int32_t y1, int32_t x2, int32_t y2) {
 }
 
 static void _init_sequence(void) {
+    _INFO("init sequence start");
     _hw_reset();
+    _INFO("after reset");
+
+    _prepare_display_spi(4000000);  // Use slow 4 MHz for init commands.
+    _INFO("spi switched to 4 MHz for init");
 
     _write_cmd(0x01);  // SWRESET
     _sleep_ms(100);
@@ -174,6 +183,7 @@ static void _init_sequence(void) {
 
     _write_cmd(0x11);  // Sleep out
     _write_cmd(0x29);  // Display on
+    _INFO("init sequence complete");
 }
 
 // ---------------------------------------------------------------------------
@@ -188,7 +198,7 @@ static void ili9488_flush_cb(lv_display_t *disp, const lv_area_t *area, uint8_t 
     int32_t x1 = area->x1;
     int32_t y1 = area->y1;
 
-    _prepare_display_spi();
+    _prepare_display_spi(g_state.baudrate);
     _set_addr_window(x1, y1, area->x2, area->y2);
     _write_cmd(0x2C);  // Memory write
 
@@ -268,7 +278,11 @@ static mp_obj_t ili9488_lvgl_init(size_t n_args, const mp_obj_t *pos_args, mp_ma
         g_state.has_nfc_cs = false;
     } else {
         g_state.has_nfc_cs = true;
-        g_state.nfc_cs = mp_hal_get_pin_obj(args[ARG_nfc_cs].u_obj);
+        mp_obj_t nfc_cs_obj = args[ARG_nfc_cs].u_obj;
+        if (mp_obj_is_int(nfc_cs_obj)) {
+            nfc_cs_obj = mp_pin_make_new(NULL, 1, 0, &nfc_cs_obj);
+        }
+        g_state.nfc_cs = mp_hal_get_pin_obj(nfc_cs_obj);
     }
 
     g_state.width = args[ARG_width].u_int;
@@ -278,7 +292,7 @@ static mp_obj_t ili9488_lvgl_init(size_t n_args, const mp_obj_t *pos_args, mp_ma
     g_state.color_invert = args[ARG_color_invert].u_bool;
     g_state.baudrate = (uint32_t)args[ARG_baudrate].u_int;
 
-    // Initial pin states.
+    _INFO("setting initial pin states");
     mp_hal_pin_write(g_state.cs, 1);
     mp_hal_pin_write(g_state.dc, 0);
     mp_hal_pin_write(g_state.rst, 1);
@@ -287,6 +301,7 @@ static mp_obj_t ili9488_lvgl_init(size_t n_args, const mp_obj_t *pos_args, mp_ma
     }
 
     // Initialize the panel hardware.
+    _INFO("starting panel init sequence");
     _init_sequence();
 
     // Color invert if requested.
@@ -312,9 +327,11 @@ static mp_obj_t ili9488_lvgl_init(size_t n_args, const mp_obj_t *pos_args, mp_ma
     }
 
     // Create LVGL v9 display.
+    _INFO("creating lvgl display");
     g_state.disp = lv_display_create(g_state.width, g_state.height);
     lv_display_set_flush_cb(g_state.disp, ili9488_flush_cb);
     lv_display_set_buffers(g_state.disp, buf1, NULL, buf_bytes, LV_DISPLAY_RENDER_MODE_PARTIAL);
+    _INFO("display registration complete");
 
     return mp_const_none;
 }
