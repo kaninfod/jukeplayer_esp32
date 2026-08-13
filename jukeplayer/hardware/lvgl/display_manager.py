@@ -210,13 +210,16 @@ class StatusScreen:
         self.cover_base_url = cover_base_url
         self._message_active = False
 
-        # Create a fresh screen and load it (no styling yet).
+        # Create a fresh screen and load it with a white background + black text.
         self.scr = lv.obj()
+        self.scr.set_style_bg_color(lv.color_white(), 0)
+        self.scr.set_style_text_color(lv.color_black(), 0)
         lv.screen_load(self.scr)
 
         # Minimal placeholder label.
         self.label_artist = lv.label(self.scr)
         self.label_artist.set_text("Jukeplayer")
+        self.label_artist.set_style_text_color(lv.color_black(), 0)
         self.label_artist.center()
 
     def _build_top_bar(self):
