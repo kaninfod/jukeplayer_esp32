@@ -142,16 +142,16 @@ static void _init_sequence(void) {
 
     uint8_t madctl;
     if (g_state.width > g_state.height) {
+        // landscape: rows/cols swapped
         madctl = g_state.usd ? 0xE8 : 0x28;
     } else {
+        // portrait
         madctl = g_state.usd ? 0x48 : 0x88;
     }
     if (g_state.mirror) {
         madctl ^= 0x80;
     }
-    _write_cmd(0x11);  // Sleep out
 
-    // Power / display function settings commonly used on ILI9488 modules.
     _write_cmd(0xB0);  // Interface Mode Control
     {
         uint8_t v = 0x00;
@@ -174,7 +174,7 @@ static void _init_sequence(void) {
     }
     _write_cmd(0xC0);  // Power Control 1
     {
-        uint8_t v[2] = {0x10, 0x10};
+        uint8_t v[2] = {0x21, 0x21};
         _write_data(v, 2);
     }
     _write_cmd(0xC1);  // Power Control 2
@@ -202,7 +202,9 @@ static void _init_sequence(void) {
     }
 
     _write_cmd(0x11);  // Sleep out
+    _sleep_ms(20);
     _write_cmd(0x29);  // Display on
+    _sleep_ms(20);
 }
 
 // ---------------------------------------------------------------------------
