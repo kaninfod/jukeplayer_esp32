@@ -172,9 +172,19 @@ static void _init_sequence(void) {
         uint8_t v[3] = {0x02, 0x02, 0x3B};
         _write_data(v, 3);
     }
+    _write_cmd(0xB7);  // Entry Mode Set
+    {
+        uint8_t v = 0xC6;
+        _write_data(&v, 1);
+    }
+    _write_cmd(0xF7);  // Adjust Control 3
+    {
+        uint8_t v[4] = {0xA9, 0x51, 0x2C, 0x82};
+        _write_data(v, 4);
+    }
     _write_cmd(0xC0);  // Power Control 1
     {
-        uint8_t v[2] = {0x21, 0x21};
+        uint8_t v[2] = {0x17, 0x15};
         _write_data(v, 2);
     }
     _write_cmd(0xC1);  // Power Control 2
@@ -184,8 +194,8 @@ static void _init_sequence(void) {
     }
     _write_cmd(0xC5);  // VCOM Control
     {
-        uint8_t v[4] = {0x00, 0x22, 0x80, 0x40};
-        _write_data(v, 4);
+        uint8_t v[3] = {0x00, 0x12, 0x80};
+        _write_data(v, 3);
     }
     _write_cmd(0x36);  // MADCTL
     _write_data(&madctl, 1);
@@ -202,9 +212,9 @@ static void _init_sequence(void) {
     }
 
     _write_cmd(0x11);  // Sleep out
-    _sleep_ms(20);
+    _sleep_ms(120);
     _write_cmd(0x29);  // Display on
-    _sleep_ms(20);
+    _sleep_ms(25);
 }
 
 // ---------------------------------------------------------------------------
