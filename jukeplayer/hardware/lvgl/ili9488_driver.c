@@ -277,15 +277,22 @@ static mp_obj_t ili9488_lvgl_init(size_t n_args, const mp_obj_t *pos_args, mp_ma
     }
 
     uint32_t buffer_lines = (uint32_t)args[ARG_buffer_lines].u_int;
-    size_t buf_pixels = (size_t)g_state.width * buffer_lines;
+    _INFO("allocating buffers width=%ld buffer_lines=%lu",
+          (long)g_state.width, (unsigned long)buffer_lines);
+    if (buffer_lines == 0 || buffer_lines > g_state.height) {
+        buffer_lines = 40;
+    }
+    size_t buf_pixels = (size_t)g_state.width * (size_t)buffer_lines;
     size_t buf_bytes = buf_pixels * 2;
-    uint8_t *buf1 = m_new(uint8_t, buf_bytes);
+    _INFO("buf_pixels=%lu buf_bytes=%lu", (unsigned long)buf_pixels, (unsigned long)buf_bytes);
+    uint8_t *buf1 = m_malloc(buf_bytes);
     if (buf1 == NULL) {
         mp_raise_OSError(MP_ENOMEM);
     }
 
     size_t linebuf_bytes = (size_t)g_state.width * 3;
-    g_state.linebuf = m_new(uint8_t, linebuf_bytes);
+    _INFO("linebuf_bytes=%lu", (unsigned long)linebuf_bytes);
+    g_state.linebuf = m_malloc(linebuf_bytes);
     if (g_state.linebuf == NULL) {
         mp_raise_OSError(MP_ENOMEM);
     }
