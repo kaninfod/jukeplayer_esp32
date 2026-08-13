@@ -149,8 +149,57 @@ static void _init_sequence(void) {
     if (g_state.mirror) {
         madctl ^= 0x80;
     }
-    _write_cmd(0x36);
+    _write_cmd(0x11);  // Sleep out
+
+    // Power / display function settings commonly used on ILI9488 modules.
+    _write_cmd(0xB0);  // Interface Mode Control
+    {
+        uint8_t v = 0x00;
+        _write_data(&v, 1);
+    }
+    _write_cmd(0xB1);  // Frame rate
+    {
+        uint8_t v[2] = {0xA0, 0x11};
+        _write_data(v, 2);
+    }
+    _write_cmd(0xB4);  // Display Inversion Control
+    {
+        uint8_t v = 0x02;
+        _write_data(&v, 1);
+    }
+    _write_cmd(0xB6);  // Display Function Control
+    {
+        uint8_t v[3] = {0x02, 0x02, 0x3B};
+        _write_data(v, 3);
+    }
+    _write_cmd(0xC0);  // Power Control 1
+    {
+        uint8_t v[2] = {0x10, 0x10};
+        _write_data(v, 2);
+    }
+    _write_cmd(0xC1);  // Power Control 2
+    {
+        uint8_t v = 0x41;
+        _write_data(&v, 1);
+    }
+    _write_cmd(0xC5);  // VCOM Control
+    {
+        uint8_t v[4] = {0x00, 0x22, 0x80, 0x40};
+        _write_data(v, 4);
+    }
+    _write_cmd(0x36);  // MADCTL
     _write_data(&madctl, 1);
+
+    _write_cmd(0xE0);  // Positive Gamma
+    {
+        uint8_t v[15] = {0x00, 0x03, 0x09, 0x08, 0x16, 0x0A, 0x3F, 0x78, 0x4C, 0x09, 0x0A, 0x08, 0x16, 0x1A, 0x0F};
+        _write_data(v, 15);
+    }
+    _write_cmd(0xE1);  // Negative Gamma
+    {
+        uint8_t v[15] = {0x00, 0x16, 0x19, 0x03, 0x0F, 0x05, 0x32, 0x45, 0x46, 0x04, 0x0E, 0x0D, 0x35, 0x37, 0x0F};
+        _write_data(v, 15);
+    }
 
     _write_cmd(0x11);  // Sleep out
     _write_cmd(0x29);  // Display on

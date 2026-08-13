@@ -51,10 +51,10 @@ class DisplayManager:
 
         log.info(f"[LVGL] creating display {width}x{height}")
 
-        # Initialize LVGL once before any other LVGL calls.
-        if not lv.is_initialized():
-            lv.init()
-            log.info("[LVGL] initialized")
+        # Always initialize LVGL explicitly. The auto-init on import may have
+        # run before PSRAM was fully ready, so force it here.
+        lv.init()
+        log.info("[LVGL] initialized")
 
         # Set the shared SPI bus to the display speed before the C driver
         # takes over. The C driver will not switch speeds itself.
@@ -76,11 +76,10 @@ class DisplayManager:
             nfc_cs=nfc_cs,
         )
 
-        # Backlight control (active low on many panels, but we keep the same
-        # contract as the other managers: value(1) = on).
-        from machine import Pin
+        # Backlight control with PWM brightness (0-100%).
+        from machine import Pin, PWM
 
-        self.backlight = Pin(backlight_pin, Pin.OUT, value=1)
+        self.backlight = PWM(Pin(backlight_pin, Pin.OUT), freq=1000, duty_u16=65535)
 
         # Build the LVGL UI.
         self.current_layout = "status"
@@ -111,8 +110,17 @@ class DisplayManager:
                 self._layout_timer_loop(duration, "status")
             )
 
+    def set_brightness(self, percent):
+        """Set backlight brightness 0-100%."""
+        duty = max(0, min(100, int(percent))) * 65535 // 100
+        self.backlight.duty_u16(duty)
+
     def toggle_backlight(self):
-        self.backlight.value(0 if self.backlight.value() else 1)
+        """Toggle between 0% and 100% brightness."""
+        if self.backlight.duty_u16() > 0:
+            self.backlight.duty_u16(0)
+        else:
+            self.backlight.duty_u16(65535)
 
     def switch_layout(self, layout_name, duration=None, fallback_layout=None):
         if self.timer_task:
@@ -199,10 +207,9 @@ class StatusScreen:
         self.cover_base_url = cover_base_url
         self._message_active = False
 
-        # Create a fresh screen and load it.
+        # Create a fresh screen and load it (no styling yet).
         self.scr = lv.obj()
-        lv.scr_load(self.scr)
-        self.scr.set_style_bg_color(lv.color_white(), 0)
+        lv.screen_load(self.scr)
 
         # Minimal placeholder label.
         self.label_artist = lv.label(self.scr)
@@ -220,7 +227,7 @@ class StatusScreen:
 
     def show_on_display(self):
         """Ensure this screen is active."""
-        lv.scr_load(self.scr)
+        lv.screen_load(self.scr)
 
     def set_initial_boot_state(self):
         self.label_artist.set_text("Booting...")
