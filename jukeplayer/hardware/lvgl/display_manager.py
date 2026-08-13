@@ -77,12 +77,11 @@ class DisplayManager:
             nfc_cs=nfc_cs,
         )
 
-        # Backlight control with PWM brightness (0-100%).
-        # For active-low LED circuits, 0% duty = fully on, 100% = off.
-        from machine import Pin, PWM
+        # Backlight control: plain on/off GPIO. Active-low means 0 = on.
+        from machine import Pin
 
         self.backlight_active_low = backlight_active_low
-        self.backlight = PWM(Pin(backlight_pin, Pin.OUT), freq=1000)
+        self.backlight = Pin(backlight_pin, Pin.OUT)
         self.set_brightness(100)
 
         # Build the LVGL UI.
@@ -115,21 +114,16 @@ class DisplayManager:
             )
 
     def set_brightness(self, percent):
-        """Set backlight brightness 0-100%."""
+        """Set backlight brightness 0-100% (currently on/off only)."""
         percent = max(0, min(100, int(percent)))
         if self.backlight_active_low:
-            duty = (100 - percent) * 65535 // 100
+            self.backlight.value(0 if percent > 0 else 1)
         else:
-            duty = percent * 65535 // 100
-        self.backlight.duty_u16(duty)
+            self.backlight.value(1 if percent > 0 else 0)
 
     def toggle_backlight(self):
-        """Toggle between 0% and 100% brightness."""
-        if self.backlight_active_low:
-            is_on = self.backlight.duty_u16() == 0
-        else:
-            is_on = self.backlight.duty_u16() > 0
-        self.set_brightness(0 if is_on else 100)
+        """Toggle backlight on/off."""
+        self.backlight.value(0 if self.backlight.value() else 1)
 
     def switch_layout(self, layout_name, duration=None, fallback_layout=None):
         if self.timer_task:
