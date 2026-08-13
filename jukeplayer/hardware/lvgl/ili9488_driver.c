@@ -277,36 +277,25 @@ static mp_obj_t ili9488_lvgl_init(size_t n_args, const mp_obj_t *pos_args, mp_ma
     }
 
     uint32_t buffer_lines = (uint32_t)args[ARG_buffer_lines].u_int;
-    _INFO("allocating buffers width=%ld buffer_lines=%lu",
-          (long)g_state.width, (unsigned long)buffer_lines);
     if (buffer_lines == 0 || buffer_lines > g_state.height) {
         buffer_lines = 40;
     }
     size_t buf_pixels = (size_t)g_state.width * (size_t)buffer_lines;
     size_t buf_bytes = buf_pixels * 2;
-    _INFO("buf_pixels=%lu buf_bytes=%lu", (unsigned long)buf_pixels, (unsigned long)buf_bytes);
     uint8_t *buf1 = m_malloc(buf_bytes);
     if (buf1 == NULL) {
         mp_raise_OSError(MP_ENOMEM);
     }
 
     size_t linebuf_bytes = (size_t)g_state.width * 3;
-    _INFO("linebuf_bytes=%lu", (unsigned long)linebuf_bytes);
     g_state.linebuf = m_malloc(linebuf_bytes);
     if (g_state.linebuf == NULL) {
         mp_raise_OSError(MP_ENOMEM);
     }
 
-    _INFO("buf1=%p linebuf=%p", (void *)buf1, (void *)g_state.linebuf);
-
-    // Create LVGL v9 display.
-    _INFO("creating display %ldx%ld", (long)g_state.width, (long)g_state.height);
     g_state.disp = lv_display_create(g_state.width, g_state.height);
-    _INFO("display created disp=%p", (void *)g_state.disp);
     lv_display_set_flush_cb(g_state.disp, ili9488_flush_cb);
-    _INFO("flush cb set");
     lv_display_set_buffers(g_state.disp, buf1, NULL, buf_bytes, LV_DISPLAY_RENDER_MODE_PARTIAL);
-    _INFO("buffers set");
 
     _INFO("init done");
     return mp_const_none;
