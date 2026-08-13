@@ -297,9 +297,16 @@ static mp_obj_t ili9488_lvgl_init(size_t n_args, const mp_obj_t *pos_args, mp_ma
         mp_raise_OSError(MP_ENOMEM);
     }
 
+    _INFO("buf1=%p linebuf=%p", (void *)buf1, (void *)g_state.linebuf);
+
+    // Create LVGL v9 display.
+    _INFO("creating display %ldx%ld", (long)g_state.width, (long)g_state.height);
     g_state.disp = lv_display_create(g_state.width, g_state.height);
+    _INFO("display created disp=%p", (void *)g_state.disp);
     lv_display_set_flush_cb(g_state.disp, ili9488_flush_cb);
+    _INFO("flush cb set");
     lv_display_set_buffers(g_state.disp, buf1, NULL, buf_bytes, LV_DISPLAY_RENDER_MODE_PARTIAL);
+    _INFO("buffers set");
 
     _INFO("init done");
     return mp_const_none;
