@@ -75,9 +75,6 @@ class JukeBoxApp:
         self.leds["green"].turn_off()
         self.leds["blue"].turn_off()
 
-        self.logger.info("turning backlight on")
-        self.display.set_brightness(100)
-
         # Extract backend settings from config
         backend_ip = self.config["backend"]["ip"]
         backend_port = self.config["backend"]["port"]

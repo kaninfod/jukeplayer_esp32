@@ -50,17 +50,23 @@ class WSService:
 
         track_data = payload.get("current_track", {})
         repeat_status = payload.get("repeat_album", False)
+        muted = payload.get("muted", False)
         volume = payload.get("volume", 0)
+        playlist_count = payload.get("playlist_count", 0)
+        status = payload.get("status", "")
+
         title = track_data.get("title", "")
+        track_number = track_data.get("track_number", 0)
         album = track_data.get("album", "")
         artist = track_data.get("artist", "")
-        status = payload.get("status", "")
-        
+        cover_url = track_data.get("cover_url", None)
+        year = track_data.get("year", "")
+
         # Apply initial volume if present
         self.app.logger.info(f"Initial volume: {payload['volume']}")
         self.app.encoder.set(value=volume)
         
-        self.app.logger.info(f"Track update - {artist} / {title}  (status: {status}, volume: {volume})")
+        self.app.logger.info(f"Track update - {artist} / {title} / {year} / {track_number} / {playlist_count} / {repeat_status} / {muted} (status: {status}, volume: {volume})")
         
             
         if status == "playing":
@@ -76,9 +82,15 @@ class WSService:
                 REPEAT_STATUS: repeat_status,
                 TITLE: title,
                 TRACK: title,
+                TRACK_NUMBER: track_number,
+                PLAYLIST_COUNT: playlist_count,
+                YEAR: year,
                 ARTIST: artist,
                 ALBUM: album,
-                PLAYER_STATUS: status
+                PLAYER_STATUS: status,
+                COVER_URL: cover_url,
+                MUTED: muted
+
             }
         )
 
@@ -95,7 +107,7 @@ class WSService:
         
         self.app.state.set({VOLUME: volume})
         if mute_status is not None:
-            self.app.state.set({MUTE_STATUS: bool(mute_status)})
+            self.app.state.set({MUTED: bool(mute_status)})
 
     async def handle_notification(self, payload):
         pass
@@ -112,8 +124,8 @@ class WSService:
 
     async def handle_volume_muted(self, payload):
         muted = payload.get("muted") if isinstance(payload, dict) else payload
-        self.app.state.set({MUTE_STATUS: bool(muted)})
-        self.app.logger.info(f"Mute status update - {self.app.state.get(MUTE_STATUS)}")
+        self.app.state.set({MUTED: bool(muted)})
+        self.app.logger.info(f"Mute status update - {self.app.state.get(MUTED)}")
         
         # await self.handle_mute_changed(payload)
 

@@ -2,7 +2,7 @@
 
 import json
 import gc
-from jukeplayer.core.state_constants import MUTE_STATUS
+from jukeplayer.core.state_constants import *
 
 
 class ButtonHandler:
@@ -43,8 +43,11 @@ class ButtonHandler:
         # Specific handlers
         self._register("nfc_card", self._handle_nfc_card)
         self._register(("encoder_sw", "long"), self._handle_encoder_long)
-        self._register(("play_pause", "long"), self._handle_backlight_toggle)
-        self._register(("stop", "long"), self._handle_volume_mute)
+        #self._register(("play_pause", "long"), self._handle_backlight_toggle)
+        self._register(("utility_button", "long"), self._handle_volume_mute)
+        self._register(("utility_button", "double"), self._handle_repeat_toggle)
+        self._register(("utility_button", "single"), self._handle_backlight_toggle)
+
 
     def _get_label(self, button_name):
         """Return label for a button from its pin config, falling back to button_name."""
@@ -92,9 +95,11 @@ class ButtonHandler:
     def _make_ws_sender(self, command):
         async def _sender():
             label = self._get_label(command)
-            self.app.display.show_message(f"{label} pressed", duration=2)
+            # Send the command immediately so the backend responds fast.
             await self.app.ws.send(json.dumps({"type": command, "payload": {}}))
             self.app.logger.info(f"WS command sent: {command}")
+            # Then show the overlay without waiting for the screen refresh.
+            self.app.display.show_message(f"{label} pressed", duration=2)
         return _sender
 
     async def _handle_nfc_card(self):
@@ -105,19 +110,23 @@ class ButtonHandler:
 
     async def _handle_encoder_long(self):
         label = self._get_label("encoder_sw")
-        if self.app.display.get_current_layout() != "message":
-            self.app.display.show_message(f"{label} long press...", duration=10)
+        if self.app.display.current_screen.message_active:
+            self.app.display.dismiss_message()
         else:
-            self.app.display.switch_layout("status")
+            self.app.display.show_message(f"{label} long press...", duration=10)
 
     async def _handle_backlight_toggle(self):
-        label = self._get_label("play_pause")
-        self.app.logger.info(f"Toggling backlight (long press {label})")
+        self.app.logger.info(f"Toggling backlight")
         self.app.display.backlight.toggle()
 
+    async def _handle_repeat_toggle(self):
+        await self.app.ws.send(json.dumps({"type": "toggle_repeat", "payload": {}}))
+        current = bool(self.app.state.get(REPEAT_STATUS, False))
+        self.app.state.set({REPEAT_STATUS: not current})
+        self.app.logger.info(f"Repeat status toggled")
+
     async def _handle_volume_mute(self):
-        label = self._get_label("stop")
         await self.app.ws.send(json.dumps({"type": "volume_mute", "payload": {}}))
-        current = bool(self.app.state.get(MUTE_STATUS, False))
-        self.app.state.set({MUTE_STATUS: not current})
-        self.app.logger.info(f"Volume mute toggled via {label}")
+        current = bool(self.app.state.get(MUTED, False))
+        self.app.state.set({MUTED: not current})
+        self.app.logger.info(f"Volume mute toggled")

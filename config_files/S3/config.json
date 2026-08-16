@@ -11,8 +11,8 @@
     "minimal_messaging"
   ],
   "backend": {
-    "ip": "192.168.68.102",
-    "port": 8001
+    "ip": "192.168.68.111",
+    "port": 8010
   },
   "wifi": {
     "ssid": "neptunium",
@@ -22,7 +22,7 @@
     "timeout_ms": 5000
   },
   "mqtt": {
-    "enabled": true,
+    "enabled": false,
     "start_delay_s": 5,
     "broker": "192.168.68.100",
     "port": 1883,
@@ -37,7 +37,7 @@
   "hardware": {
     "spi": {
       "spi_unit": 1,
-      "display_baudrate": 4000000,
+      "display_baudrate": 24000000,
       "nfc_baudrate": 4000000,
       "baudrate": 4000000,
       "polarity": 0,
@@ -58,43 +58,20 @@
       "width": 128,
       "height": 64
     },
-
-    "tft": {
-      "enabled": true,
-      "driver": "ili9488",
-      "cs": 5,
-      "a0": 7,
-      "reset": 4,
-      "led": 15,
-      "width": 480,
-      "height": 320,
-      "usd": false,
-      "mirror": false,
-      "color_invert": false
-    },
-    "tft_lvgl": {
-      "enabled": true,
-      "driver": "ili9488_lvgl",
-      "cs": 5,
-      "a0": 7,
-      "reset": 4,
-      "led": 15,
-      "width": 480,
-      "height": 320,
-      "usd": false,
-      "mirror": false,
-      "color_invert": false
-    },
-    "tft_old": {
-      "enabled": true,
-      "interface": "spi",
-      "cs": 5,
-      "a0": 7,
-      "reset": 4,
-      "led": 15,
-      "width": 160,
-      "height": 128
-    },
+   "tft": {
+     "enabled": true,
+     "driver": "ili9488_rgb565",
+     "cs": 5,
+     "a0": 7,
+     "reset": 4,
+     "led": 15,
+     "backlight_active_low": true,
+     "width": 480,
+     "height": 320,
+     "rotate_180": true,
+     "mirror": false,
+     "color_invert": false
+   },
     "nfc_reader": {
       "enabled": true,
       "cs": 10,
@@ -111,7 +88,7 @@
       "enabled": true,
       "debounce_ms": 100,
       "pins": {
-          "play_pause": {
+        "play_pause": {
                 "pin": 17,
                 "action_name": "play_pause",
                 "active_low": true,

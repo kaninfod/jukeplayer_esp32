@@ -6,18 +6,22 @@ class AppState:
             TITLE: "Idle",
             ARTIST: "",
             ALBUM: "",
+            YEAR: "",
+            TRACK_NUMBER: 0,
             TRACK: "",
+            PLAYLIST_COUNT: 0,
             PLAYER_STATUS: "idle",
             VOLUME: 0,
             REPEAT_STATUS: False,
             NETWORK_STATUS: "WS:ERR",
-            MUTE_STATUS: False,
             CLIENT_ID: "",
             MEMORY_USAGE: 0,
             NFC_WRITE_STATE: False,
             NFC_ENCODING_ALBUM_ID: None,
             LAST_NFC_SCAN: "",
             WS_CONNECTED: False,
+            COVER_URL: "",
+            MUTED: False
         }
         if initial_state:
             self._state.update(initial_state)

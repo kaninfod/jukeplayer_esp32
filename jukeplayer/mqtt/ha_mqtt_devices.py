@@ -246,7 +246,7 @@ class HAMQTTService:
                 "volume": app_state[VOLUME],
                 "network_status": app_state[NETWORK_STATUS],
                 "repeat_status": app_state[REPEAT_STATUS],
-                "mute_status": app_state[MUTE_STATUS],
+                "mute_status": app_state[MUTED],
                 "client_id": app_state[CLIENT_ID],
                 "memory_usage": app_state[MEMORY_USAGE],
                 "timestamp": timestamp,

@@ -104,12 +104,12 @@ class HardwareFactory:
         if not cfg.get("enabled", True):
             raise RuntimeError("TFT display is disabled in config")
 
-        # Select TFT driver: "st7735r", "ili9488" (nano-gui), or "ili9488_lvgl".
+        # Select TFT driver: "st7735r", "ili9488" (nano-gui 4-bit), or "ili9488_rgb565" / "ili9488_lvgl".
         driver = cfg.get("driver", "st7735r")
-        if driver == "ili9488":
+        if driver in ("ili9488", "ili9488_rgb565"):
             from jukeplayer.hardware.ili9488.display_manager import DisplayManager
-        elif driver == "ili9488_lvgl":
-            from jukeplayer.hardware.lvgl.display_manager import DisplayManager
+        # elif driver == "ili9488_lvgl":
+        #     from jukeplayer.hardware.lvgl.display_manager import DisplayManager
         else:
             from jukeplayer.hardware.st7735r.display_manager import DisplayManager
 
@@ -181,13 +181,20 @@ class HardwareFactory:
                 "dc": p_dc,
                 "rst": p_rst,
                 "backlight_pin": led_num,
+                "backlight_active_low": cfg.get("backlight_active_low", True),
                 "width": cfg.get("width", 160),
                 "height": cfg.get("height", 128),
-                "usd": cfg.get("usd", False),
+                # rotate_180 is an alias for the driver's usd (upside-down) flag.
+                # Defaults to False so the display uses normal orientation.
+                "usd": cfg.get("rotate_180", cfg.get("usd", False)),
                 "mirror": cfg.get("mirror", False),
                 "color_invert": cfg.get("color_invert", False),
                 "cover_base_url": cover_base_url,
             }
+            effective_usd = display_kwargs["usd"]
+            log.info(f"[TFT] orientation config rotate_180={cfg.get('rotate_180', None)} usd={cfg.get('usd', None)} effective_usd={effective_usd}")
+            if driver == "ili9488_rgb565":
+                display_kwargs["bpp"] = 16
 
             # LVGL driver handles SPI speed switching internally, so pass the
             # target baudrate and the NFC chip-select to keep deasserted.
