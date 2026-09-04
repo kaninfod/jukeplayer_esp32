@@ -44,6 +44,9 @@ class JukeBoxApp:
         #self._heap_mark("boot:start")
         
         self.config = load_config()
+
+        # Re-apply logging configuration from the loaded config (idempotent)
+        self.logger.configure_from_config(self.config)
         
         factory = HardwareFactory(self.config)
 
@@ -186,6 +189,9 @@ class JukeBoxApp:
                 if time.ticks_diff(now, self.last_memory_log) >= self.memory_log_interval:
                     self.last_memory_log = now
                     self._log_memory_usage()
+
+                # Flush any queued syslog log lines
+                await logger.flush_syslog()
 
                 # We can sleep longer here now since it isn't checking rapid knob turns
                 await asyncio.sleep(1)

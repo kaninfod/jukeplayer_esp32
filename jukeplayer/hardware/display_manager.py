@@ -1,5 +1,6 @@
 from jukeplayer.core.state_constants import *
 import asyncio
+import framebuf
 from jukeplayer.nanogui.core.writer import Writer
 from jukeplayer.nanogui.core.nanogui import refresh
 from jukeplayer.nanogui.widgets.label import Label, ALIGN_LEFT, ALIGN_CENTER, ALIGN_RIGHT
@@ -22,7 +23,6 @@ class DisplayManager:
             Writer(self.display, geistmonobold18, verbose=False)
         )
 
-        self.current_layout = "status"
         self.current_screen = StatusScreen(self.display, self.writers)
         initial_state = self.app_state.data if self.app_state else {}
         self.current_screen.update(initial_state)
@@ -42,7 +42,6 @@ class DisplayManager:
                 pass
             self.timer_task = None
 
-        self.current_layout = "message"
         self.current_screen.show_message(message, header="Message")
         self.display.fill(0)
         self.current_screen.draw_static()
@@ -50,49 +49,32 @@ class DisplayManager:
 
         if duration is not None:
             self.timer_task = asyncio.create_task(
-                self._layout_timer_loop(duration, "status")
+                self._layout_timer_loop(duration)
             )
 
-    def switch_layout(self, layout_name, duration=None, fallback_layout=None):
-        """
-        Compatibility wrapper for the old multi-screen API.
-        """
+    def revert_to_status(self):
+        """Redraw the status layout after a timed message overlay."""
         if self.timer_task:
             try:
                 self.timer_task.cancel()
             except RuntimeError:
-
                 pass
             self.timer_task = None
 
-        if layout_name == "status":
-            self.current_layout = layout_name
-            self.current_screen.clear_message()
-            self.display.fill(0)
-            current_state = self.app_state.data if self.app_state else {}
-            self.current_screen.update(current_state)
-            self.current_screen.draw_static()
-            self.display.show()
+        self.current_screen.clear_message()
+        self.display.fill(0)
+        current_state = self.app_state.data if self.app_state else {}
+        self.current_screen.update(current_state)
+        self.current_screen.draw_static()
+        self.display.show()
 
-            if duration is not None and fallback_layout == "message":
-                self.timer_task = asyncio.create_task(
-                    self._layout_timer_loop(duration, fallback_layout)
-                )
-        elif layout_name == "message":
-            self.current_layout = layout_name
-            self.display.fill(0)
-            self.current_screen.draw_static()
-            self.display.show()
-        import gc
-        gc.collect() 
-
-    async def _layout_timer_loop(self, duration, fallback_layout):
-        """Internal worker task that waits out the duration before triggering a revert."""
+    async def _layout_timer_loop(self, duration):
+        """Wait out the message duration, then revert to the status layout."""
         try:
             await asyncio.sleep(duration)
             self.timer_task = None 
             
-            self.switch_layout(fallback_layout)
+            self.revert_to_status()
         except asyncio.CancelledError:
             # Task was canceled by an external manual screen switch; exit cleanly
             pass
@@ -100,9 +82,6 @@ class DisplayManager:
             if self.timer_task == asyncio.current_task():
                 self.timer_task = None
 
-    def get_current_layout(self):
-        return self.current_layout
-    
     def update(self, state):
         """Pass application state down to the current visible screen and refresh."""
         self.current_screen.update(state)
@@ -133,6 +112,14 @@ class DisplayManager:
         if self.scroll_task:
             self.scroll_task.cancel()
             self.scroll_task = None
+
+    def toggle_backlight(self):
+        """No-op: the I2C SSD1306 has no controllable backlight pin.
+
+        Kept for API parity with the TFT display managers so button
+        handlers can call display.toggle_backlight() unconditionally.
+        """
+        pass
 
 class StatusScreen:
     def __init__(self, display, writers):
@@ -246,7 +233,6 @@ class StatusScreen:
         self.message_active = False
 
 
-import framebuf      
 class MockDisplay(framebuf.FrameBuffer):
     def __init__(self, buf, w, h, fmt):
         super().__init__(buf, w, h, fmt)

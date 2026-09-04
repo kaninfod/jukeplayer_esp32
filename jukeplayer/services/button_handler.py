@@ -23,13 +23,15 @@ class ButtonHandler:
     # Supported press classifications.
     PRESS_TYPES = frozenset(["single", "double", "long"])
 
-    # Buttons that forward a single press as a WebSocket command
+    # Buttons that forward a single press as a WebSocket command.
+    # NOTE: "utility_button" is intentionally absent — its single press is
+    # bound to _handle_backlight_toggle below; the generic sender loop would
+    # register a handler here that is immediately overwritten.
     WS_SINGLE_COMMANDS = [
         "play_pause",
         "next_track",
         "previous_track",
         "stop",
-        "utility_button",
     ]
 
     def __init__(self, app):
@@ -43,7 +45,7 @@ class ButtonHandler:
         # Specific handlers
         self._register("nfc_card", self._handle_nfc_card)
         self._register(("encoder_sw", "long"), self._handle_encoder_long)
-        #self._register(("play_pause", "long"), self._handle_backlight_toggle)
+        self._register(("stop", "long"), self._handle_hardware_reset)
         self._register(("utility_button", "long"), self._handle_volume_mute)
         self._register(("utility_button", "double"), self._handle_repeat_toggle)
         self._register(("utility_button", "single"), self._handle_backlight_toggle)
@@ -116,8 +118,10 @@ class ButtonHandler:
             self.app.display.show_message(f"{label} long press...", duration=10)
 
     async def _handle_backlight_toggle(self):
-        self.app.logger.info(f"Toggling backlight")
-        self.app.display.backlight.toggle()
+        self.app.logger.info("Toggling backlight")
+        # display.backlight is a raw machine.Pin (no .toggle() on the ESP32
+        # port); the managers expose toggle_backlight() for this.
+        self.app.display.toggle_backlight()
 
     async def _handle_repeat_toggle(self):
         await self.app.ws.send(json.dumps({"type": "toggle_repeat", "payload": {}}))
@@ -130,3 +134,9 @@ class ButtonHandler:
         current = bool(self.app.state.get(MUTED, False))
         self.app.state.set({MUTED: not current})
         self.app.logger.info(f"Volume mute toggled")
+
+    async def _handle_hardware_reset(self):
+        """Reset hardware components to a known state."""
+        self.app.logger.info("Resetting hardware...")
+        import machine
+        machine.reset() 

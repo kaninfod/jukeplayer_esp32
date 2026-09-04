@@ -21,6 +21,8 @@ class DisplayManager:
         width=160,
         height=128,
         init_spi=None,
+        color_invert=False,
+        **kwargs,
     ):
         from machine import Pin
 
@@ -36,6 +38,7 @@ class DisplayManager:
             width=self.width,
             height=self.height,
             init_spi=init_spi or False,
+            color_invert=color_invert,
         )
         self.backlight = Pin(backlight_pin, Pin.OUT, value=0)
         black = self.display.rgb(0, 0, 0)

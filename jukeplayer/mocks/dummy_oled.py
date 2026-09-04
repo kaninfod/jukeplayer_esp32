@@ -11,3 +11,4 @@ class DummyOLEDScroller:
     def set_artist(self, artist): pass
     def set_text(self, title): pass
     def update(self, state={}): pass
+    def toggle_backlight(self): pass

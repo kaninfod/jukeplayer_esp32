@@ -37,6 +37,9 @@ def boot_sequence():
         while True:
             time.sleep(1)
 
+    # Configure logging targets from config.json (console + optional syslog)
+    log.configure_from_config(config)
+
     wifi_cfg = config.get("wifi", {})
     ssid = wifi_cfg.get("ssid")
     password = wifi_cfg.get("password")
@@ -52,6 +55,9 @@ def boot_sequence():
         log.error("Halting boot sequence: Failed to connect to WiFi.")
         while True:
             time.sleep(1)
+
+    # Network is up: start flushing buffered syslog messages (boot log replay)
+    log.mark_syslog_online()
 
     # 2. Sync NTP Time
     log.info("Attempting NTP time sync...")

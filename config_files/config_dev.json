@@ -20,6 +20,21 @@
   "server": {
     "timeout_ms": 5000
   },
+  "logging": {
+    "level": "INFO",
+    "console": {
+      "enabled": true
+    },
+    "syslog": {
+      "enabled": true,
+      "host": "192.168.68.102",
+      "port": 514,
+      "facility": "local0",
+      "hostname": "jukeplayer",
+      "tag": "jukeplayer",
+      "boot_buffer_lines": 50
+    }
+  },
   "webrepl": {
     "enabled": true,
     "password": "jukeplay"

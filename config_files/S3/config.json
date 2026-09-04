@@ -21,6 +21,21 @@
   "server": {
     "timeout_ms": 5000
   },
+  "logging": {
+    "level": "INFO",
+    "console": {
+      "enabled": true
+    },
+    "syslog": {
+      "enabled": true,
+      "host": "192.168.68.111",
+      "port": 514,
+      "facility": "local0",
+      "hostname": "jukeplayer",
+      "tag": "jukeplayer",
+      "boot_buffer_lines": 50
+    }
+  },
   "mqtt": {
     "enabled": false,
     "start_delay_s": 5,
@@ -60,7 +75,7 @@
     },
    "tft": {
      "enabled": true,
-     "driver": "ili9488_rgb565",
+     "driver": "ili9488",
      "cs": 5,
      "a0": 7,
      "reset": 4,

@@ -138,25 +138,19 @@ class DisplayManager:
         color_invert=False,
         init_spi=None,
         cover_base_url=None,
-        bpp=4,
     ):
         self.width = width
         self.height = height
         self.app_state = app_state
         self.backlight_active_low = backlight_active_low
-        self.bpp = bpp
 
-        log.info(f"[ILI9488] creating display {width}x{height} usd={usd} mirror={mirror} bpp={bpp}")
+        log.info(f"[ILI9488] creating display {width}x{height} usd={usd} mirror={mirror}")
         if color_invert:
             ili9488.ILI9488.COLOR_INVERT = 0xFFFF
             log.info("[ILI9488] COLOR_INVERT set to 0xFFFF")
 
-        if bpp == 16:
-            driver_class = ili9488.ILI9488_RGB565
-            log.info("[ILI9488] using RGB565 (65K color) driver")
-        else:
-            driver_class = ili9488.ILI9488_RGB565
-            log.info("[ILI9488] using 4-bit LUT driver")
+        driver_class = ili9488.ILI9488_RGB565
+        log.info("[ILI9488] using RGB565 (65K color) driver")
 
         self.display = driver_class(
             spi=spi,

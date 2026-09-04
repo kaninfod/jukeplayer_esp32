@@ -104,14 +104,14 @@ class HardwareFactory:
         if not cfg.get("enabled", True):
             raise RuntimeError("TFT display is disabled in config")
 
-        # Select TFT driver: "st7735r", "ili9488" (nano-gui 4-bit), or "ili9488_rgb565" / "ili9488_lvgl".
+        # Select TFT driver: only "ili9488" or "st7735r" are supported.
         driver = cfg.get("driver", "st7735r")
-        if driver in ("ili9488", "ili9488_rgb565"):
+        if driver == "ili9488":
             from jukeplayer.hardware.ili9488.display_manager import DisplayManager
-        # elif driver == "ili9488_lvgl":
-        #     from jukeplayer.hardware.lvgl.display_manager import DisplayManager
-        else:
+        elif driver == "st7735r":
             from jukeplayer.hardware.st7735r.display_manager import DisplayManager
+        else:
+            raise ValueError(f"Unsupported TFT driver '{driver}'. Use 'ili9488' or 'st7735r'.")
 
         required = ("cs", "a0", "reset")
         missing = [k for k in required if cfg.get(k) is None]
@@ -193,8 +193,6 @@ class HardwareFactory:
             }
             effective_usd = display_kwargs["usd"]
             log.info(f"[TFT] orientation config rotate_180={cfg.get('rotate_180', None)} usd={cfg.get('usd', None)} effective_usd={effective_usd}")
-            if driver == "ili9488_rgb565":
-                display_kwargs["bpp"] = 16
 
             # LVGL driver handles SPI speed switching internally, so pass the
             # target baudrate and the NFC chip-select to keep deasserted.

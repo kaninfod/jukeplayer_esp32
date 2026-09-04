@@ -76,23 +76,22 @@ class WSService:
         elif status in ["stopped", "idle"]:
             status = "STOP"
 
-        self.app.state.set(
-            {
-                VOLUME: volume,
-                REPEAT_STATUS: repeat_status,
-                TITLE: title,
-                TRACK: title,
-                TRACK_NUMBER: track_number,
-                PLAYLIST_COUNT: playlist_count,
-                YEAR: year,
-                ARTIST: artist,
-                ALBUM: album,
-                PLAYER_STATUS: status,
-                COVER_URL: cover_url,
-                MUTED: muted
-
-            }
-        )
+        update = {
+            VOLUME: volume,
+            REPEAT_STATUS: repeat_status,
+            TITLE: title,
+            TRACK: title,
+            TRACK_NUMBER: track_number,
+            PLAYLIST_COUNT: playlist_count,
+            YEAR: year,
+            ARTIST: artist,
+            ALBUM: album,
+            PLAYER_STATUS: status,
+            COVER_URL: cover_url,
+            MUTED: muted
+        }
+        
+        self.app.state.set(update)
 
     async def handle_volume_changed(self, payload):
         self.app.logger.info(f"Volume update received: {payload}")
@@ -115,12 +114,7 @@ class WSService:
     async def handle_toggle_repeat_changed(self, payload):
         repeat_status = payload.get('mode')
         self.app.state.set({REPEAT_STATUS: repeat_status})
-        self.app.logger.info(f"Repeat status update - {repeat_status} / {payload}")                
-
-    # async def handle_mute_changed(self, payload):
-    #     muted = payload.get("muted") if isinstance(payload, dict) else payload
-    #     self.app.state.set({"mute_status": bool(muted)})
-    #     self.app.logger.info(f"Mute status update - {self.app.state.get('mute_status')}")
+        self.app.logger.info(f"Repeat status update - {repeat_status} / {payload}")
 
     async def handle_volume_muted(self, payload):
         muted = payload.get("muted") if isinstance(payload, dict) else payload

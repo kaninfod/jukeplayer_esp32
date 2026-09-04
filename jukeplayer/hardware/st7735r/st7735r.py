@@ -52,7 +52,7 @@ class ST7735R(framebuf.FrameBuffer):
         return (r & 0xe0) | ((g >> 3) & 0x1c) | (b >> 6)
 
     # rst and cs are active low, SPI is mode 0
-    def __init__(self, spi, cs, dc, rst, height=128, width=160, usd=False, init_spi=False):
+    def __init__(self, spi, cs, dc, rst, height=128, width=160, usd=False, init_spi=False, color_invert=False):
         self._spi = spi
         self._rst = rst  # Pins
         self._dc = dc
@@ -60,6 +60,7 @@ class ST7735R(framebuf.FrameBuffer):
         self.height = height  # Required by Writer class
         self.width = width
         self._spi_init = init_spi
+        self._color_invert = color_invert
         mode = framebuf.GS8  # Use 8bit greyscale for 8 bit color.
         self.palette = BoolPalette(mode)
         gc.collect()
@@ -121,7 +122,11 @@ class ST7735R(framebuf.FrameBuffer):
         wcd(b'\xc4', b'\x8a\xee')  # PWCTR5 
         wcd(b'\xc5', b'\x0e')  # VMCTR1 VCOMH = 4V, VOML = -1.1V  NOTE I make VCOM == -0.775V
 
-        cmd(b'\x20') # INVOFF
+        # INVOFF/INVON: colour inversion control
+        if self._color_invert:
+            cmd(b'\x21')  # INVON
+        else:
+            cmd(b'\x20')  # INVOFF
         # d7..d5 of MADCTL determine rotation/orientation
         if self.height > self.width:
             wcd(b'\x36', b'\x80' if usd else b'\x40')  # MADCTL: RGB portrait mode
