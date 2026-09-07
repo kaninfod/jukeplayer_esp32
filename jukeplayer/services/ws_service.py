@@ -140,6 +140,15 @@ class WSService:
     async def handle_nfc_encode_completed(self, payload):
         pass
 
+    async def handle_device_reset(self, payload):
+        """Backend-triggered reboot: log, give the log lines time to flush
+        (console + buffered syslog), then hard reset the device."""
+        self.app.logger.info("[WS] device_reset received from backend - rebooting")
+        import asyncio
+        import machine
+        await asyncio.sleep(0.5)
+        machine.reset()
+
     async def register_with_backend(self):
         """Send registration message to backend."""
         import time, asyncio, json

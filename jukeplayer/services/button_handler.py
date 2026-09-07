@@ -34,9 +34,14 @@ class ButtonHandler:
         "stop",
     ]
 
+    REBOOT_ARM_WINDOW_MS = 10000  # second long-press must land within this
+
     def __init__(self, app):
         self.app = app
         self._handlers = {}
+        # Two-stage hardware reset ("gun"): armed by the first stop long-press,
+        # fired by a second press within REBOOT_ARM_WINDOW_MS
+        self._reboot_armed_at = 0
 
         # Generic WS single-press handlers
         for name in self.WS_SINGLE_COMMANDS:
@@ -44,7 +49,7 @@ class ButtonHandler:
 
         # Specific handlers
         self._register("nfc_card", self._handle_nfc_card)
-        self._register(("stop", "long"), self._handle_hardware_reset)
+        self._register(("stop", "long"), self._handle_stop_long)
         self._register(("utility_button", "long"), self._handle_volume_mute)
         self._register(("utility_button", "double"), self._handle_repeat_toggle)
         self._register(("utility_button", "single"), self._handle_backlight_toggle)
@@ -126,6 +131,19 @@ class ButtonHandler:
         current = bool(self.app.state.get(MUTED, False))
         self.app.state.set({MUTED: not current})
         self.app.logger.info(f"Volume mute toggled")
+
+    async def _handle_stop_long(self):
+        """Two-stage hardware reset: first long press arms the 'gun' (user
+        signal via the display), a second press within the window fires it."""
+        import time
+        now = time.ticks_ms()
+        if self._reboot_armed_at and 0 < time.ticks_diff(now, self._reboot_armed_at) <= self.REBOOT_ARM_WINDOW_MS:
+            self._reboot_armed_at = 0
+            await self._handle_hardware_reset()
+        else:
+            self._reboot_armed_at = now
+            self.app.logger.info("Reset armed - long-press stop again within 10s to reboot")
+            self.app.display.show_message("Reboot? press again", duration=10)
 
     async def _handle_hardware_reset(self):
         """Reset hardware components to a known state."""

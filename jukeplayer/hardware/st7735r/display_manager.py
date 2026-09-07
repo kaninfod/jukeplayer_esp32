@@ -289,6 +289,7 @@ class StatusScreen:
         self.message_active = True
         self.label_artist.value(str(header))
         self.label_title1.value(str(text))
+        self.label_title2.value("")  # clear the previous track's second line
 
     def clear_message(self):
         self.message_active = False
