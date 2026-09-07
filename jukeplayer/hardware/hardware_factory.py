@@ -297,7 +297,9 @@ class HardwareFactory:
         if not cfg.get("enabled", True):
             log.info("LEDs: Initializing in DUMMY mode")
             from jukeplayer.mocks.dummy_led import DummyLEDController
-            return DummyLEDController()
+            # app.py subscripts leds by name (red/green/blue) — the fallback
+            # must be a dict with those keys, not a single controller object
+            return {name: DummyLEDController() for name in ("red", "green", "blue")}
         try:
             from jukeplayer.hardware.led import LEDController
             pins = cfg.get("pins", {})
@@ -308,7 +310,7 @@ class HardwareFactory:
         except Exception as e:
             log.error(f"Failed to init physical LEDs: {e}. Falling back to Dummy LEDs.")
             from jukeplayer.mocks.dummy_led import DummyLEDController
-            return DummyLEDController()
+            return {name: DummyLEDController() for name in ("red", "green", "blue")}
     
     def get_pushbuttons(self):
         cfg = self.config.get("buttons", {})

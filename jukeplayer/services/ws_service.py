@@ -12,7 +12,8 @@ class WSService:
 
             msg = json.loads(data)
             msg_type = msg.get("type")
-            payload = msg.get("payload", {})
+            # `or {}` so an explicit "payload": null can't crash handlers below
+            payload = msg.get("payload") or {}
 
             handler_name = f"handle_{msg_type}"
             handler = getattr(self, handler_name, None) #self.handlers.get(msg_type)
@@ -62,8 +63,10 @@ class WSService:
         cover_url = track_data.get("cover_url", None)
         year = track_data.get("year", "")
 
-        # Apply initial volume if present
-        self.app.logger.info(f"Initial volume: {payload['volume']}")
+        # Apply initial volume if present (volume is read defensively above;
+        # never index payload directly here — a schema change on the server
+        # must not discard the whole track update)
+        self.app.logger.info(f"Initial volume: {volume}")
         self.app.encoder.set(value=volume)
         
         self.app.logger.info(f"Track update - {artist} / {title} / {year} / {track_number} / {playlist_count} / {repeat_status} / {muted} (status: {status}, volume: {volume})")
