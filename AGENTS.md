@@ -19,8 +19,11 @@ imports the hand-vendored fork in `jukeplayer/nanogui/`.
 2. **No blocking I/O inside coroutines.** Synchronous sockets (umqtt), long
    `sleep_ms` polling loops, or large SPI transfers stall WS pings, button
    handling and display refresh. Anything that waits must `await`.
-   Known offenders still queued: NFC write poll, cover-art HTTP fetch,
-   MQTT `connect()`.
+   (Fixed 2026-09-07: NFC write poll, cover-art HTTP fetch and the MQTT
+   broker probe now all yield. Residual known-blocking: umqtt's `connect()`
+   itself — bounded in practice by the async reachability pre-check; and the
+   one-shot blocking SPI frame pushes (display.show()), same cost class as
+   the old behavior.)
 3. **GC is traffic-independent.** The telemetry loop collects every 30 s
    (`app.py _telemetry_loop`) — do not remove. The recv-loop collect before
    frame reads stays for fragmentation control before cover blits. Watch the
