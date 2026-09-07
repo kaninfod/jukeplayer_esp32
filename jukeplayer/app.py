@@ -65,7 +65,10 @@ class JukeBoxApp:
         self.display.start()
 
         self.encoder = factory.get_encoder()
-        self.encoder.add_listener(self.hw_service.on_encoder_change)
+        # IRQ-safe bridge: the rotary IRQ only sets a ThreadSafeFlag; the
+        # encoder task (running in loop context) does the real work.
+        self.encoder.add_listener(self.hw_service.encoder_flag_set)
+        self.hw_service.start_encoder_task()
         
         self.debounce_task = None
 

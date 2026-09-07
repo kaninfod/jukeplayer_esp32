@@ -1,10 +1,39 @@
 from jukeplayer.core.state_constants import *
 from jukeplayer.services.button_handler import ButtonHandler
 
-class HardwareService: 
+class HardwareService:
     def __init__(self, app):
         self.app = app
         self.button_handler = ButtonHandler(app)
+        import asyncio
+        # IRQ-safe bridge for the rotary encoder: the pin IRQ handler's only
+        # job is to set this flag (documented IRQ-safe); a persistent task in
+        # the event loop waits on it and does the real work in task context.
+        self._encoder_flag = asyncio.ThreadSafeFlag()
+        self._encoder_task = None
+        self.encoder_flag_set = self._encoder_flag.set
+
+    def start_encoder_task(self):
+        """Spawn the encoder event loop — call once from the running loop,
+        after the encoder exists."""
+        import asyncio
+        self._encoder_task = asyncio.create_task(self._encoder_loop())
+
+    async def _encoder_loop(self):
+        import asyncio
+        while True:
+            await self._encoder_flag.wait()
+            try:
+                current_volume = self.app.encoder.value()
+                self.app.logger.info(f"Encoder turned - current volume: {current_volume}%")
+                # Manage the 300ms debounce API timer
+                if self.app.debounce_task and not self.app.debounce_task.done():
+                    self.app.debounce_task.cancel()
+                self.app.debounce_task = asyncio.create_task(
+                    self.set_volume_debounce_worker(current_volume)
+                )
+            except Exception as e:
+                self.app.logger.info(f"Encoder handling error: {e}")
 
     async def handle_volume_change(self, volume):
         """Handle potentiometer volume change - send via WebSocket immediately."""
@@ -43,22 +72,6 @@ class HardwareService:
             return
         except Exception as e:
             self.app.logger.info(f"Volume debounce worker error: {e}")
-
-    def on_encoder_change(self):
-        """Fires immediately via the hardware interrupt when the knob is turned."""
-        
-        import asyncio
-        current_volume = self.app.encoder.value()
-        # self.app.display.set_volume(current_volume)
-        self.app.logger.info(f"Encoder turned - current volume: {current_volume}%")
-        # Manage the 300ms debounce API timer
-        if self.app.debounce_task and not self.app.debounce_task.done():
-            self.app.debounce_task.cancel()
-            
-        # Schedule the worker directly onto the async event loop
-        self.app.debounce_task = asyncio.create_task(
-            self.set_volume_debounce_worker(current_volume)
-        )   
 
     def make_callback(self,button_name, press_type):
         import asyncio
