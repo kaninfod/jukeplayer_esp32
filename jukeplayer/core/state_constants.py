@@ -18,3 +18,14 @@ TIMESTAMP = 17
 WS_CONNECTED = 18
 COVER_URL = 19
 MUTED = 20
+
+# Keys no display renders — AppState deltas containing only these skip
+# display repaints entirely (MQTT still receives them via its own subscriber)
+NON_VISUAL_KEYS = {
+    MEMORY_USAGE,
+    CLIENT_ID,
+    WS_CONNECTED,
+    NFC_WRITE_STATE,
+    NFC_ENCODING_ALBUM_ID,
+    LAST_NFC_SCAN,
+}

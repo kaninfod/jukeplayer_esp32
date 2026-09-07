@@ -84,6 +84,11 @@ class DisplayManager:
 
     def update(self, state):
         """Pass application state down to the current visible screen and refresh."""
+        for key in state:
+            if key not in NON_VISUAL_KEYS:
+                break
+        else:
+            return  # delta contains only non-visual keys — no repaint needed
         self.current_screen.update(state)
         self.display.show()
 

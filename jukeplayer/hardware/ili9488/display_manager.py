@@ -20,6 +20,7 @@ class CoverArtDownloader:
         self.cover_base_url = cover_base_url
         self._last_cover_data = None
         self._fetching = False
+        self._wanted_url = None
 
     def _device_url(self, url):
         if url.startswith("/"):
@@ -31,31 +32,41 @@ class CoverArtDownloader:
         return f"{url}{sep}format=rgb565"
 
     async def fetch_and_blit(self, url):
-        """Fetch a cover and blit it into the framebuffer."""
+        """Fetch a cover and blit it into the framebuffer.
+
+        The newest requested URL always wins: if the album changed while a
+        download was in flight, the completed fetch is immediately followed
+        by the newer one instead of being silently dropped.
+        """
         if not url:
             return False
+        self._wanted_url = url
         if self._fetching:
-            return False
+            return False  # the in-flight fetch chases this URL when it finishes
 
         self._fetching = True
-        device_url = self._device_url(url)
-        log.info(f"[COVER] fetching {device_url}")
-        body = None
         try:
-            body = await self._http_get(device_url, timeout=10)
-            expected = self.art_size * self.art_size * 2
-            if len(body) < expected:
-                log.warn(f"[COVER] received {len(body)} bytes, expected {expected}")
-                return False
-            self._last_cover_data = body[:expected]
-            self._blit_rgb565(self._last_cover_data)
-            return True
+            while True:
+                url = self._wanted_url
+                device_url = self._device_url(url)
+                log.info(f"[COVER] fetching {device_url}")
+                body = await self._http_get(device_url, timeout=10)
+                expected = self.art_size * self.art_size * 2
+                if len(body) < expected:
+                    log.warn(f"[COVER] received {len(body)} bytes, expected {expected}")
+                    return False
+                self._last_cover_data = body[:expected]
+                # hold the display lock so a segmented refresh cannot transfer
+                # a half-written cover (torn art)
+                async with self.display._lock:
+                    self._blit_rgb565(self._last_cover_data)
+                if self._wanted_url == url:
+                    return True
+                log.info("[COVER] newer cover requested mid-download - chasing")
         except Exception as e:
             log.error(f"[COVER] download failed: {e}")
             return False
         finally:
-            if body:
-                body = None
             self._fetching = False
 
     def blit_last(self):
@@ -252,7 +263,10 @@ class DisplayManager:
         except Exception as e:
             log.error(f"[ILI9488] refresh task error: {e}")
         finally:
-            self._refresh_task = None
+            # only clear the reference if WE are still the active task — a
+            # cancelled refresh must not clobber its replacement's reference
+            if self._refresh_task == asyncio.current_task():
+                self._refresh_task = None
 
     @staticmethod
     def _as_pin(pin_or_num, pin_type):
@@ -307,6 +321,11 @@ class DisplayManager:
         self._schedule_refresh()
 
     def update(self, state):
+        for key in state:
+            if key not in NON_VISUAL_KEYS:
+                break
+        else:
+            return  # delta contains only non-visual keys — no repaint needed
         self.current_screen.update(state)
         self._schedule_refresh()
 
