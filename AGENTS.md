@@ -84,7 +84,7 @@ Standing invariants:
 | Device | Board | Config variant | Display | Access |
 |---|---|---|---|---|
 | Klangmeister | ESP32-S3, Octal SPIRAM | `config_files/S3/config.json` | ILI9488 480×320 SPI | WebREPL (mounted in radio chassis, no serial) |
-| Testbench v2 | ESP32-S3, Octal SPIRAM, **native USB** (`usbmodem*` — no DTR/RTS auto-reset circuit; restart via mpremote soft-reset, a hard reset briefly drops the port) | device-root `config.json` (client "ESP32_S3 Testbench v2", MQTT off, console+syslog logging on) | ST7735R SPI TFT (separate `hardware.tft` section — the `oled` flag being off does not mean screenless) | Serial `/dev/cu.usbmodem1101` (path changes per session — re-check `ls /dev/cu.*`); custom preview build |
+| Testbench v2 | ESP32-S3, Octal SPIRAM, **native USB** (`usbmodem*` — no DTR/RTS auto-reset circuit; restart via mpremote soft-reset, a hard reset briefly drops the port) | device-root `config.json` (client "ESP32_S3 Testbench v2", MQTT **on** since 2026-09-07 for functional testing, console+syslog logging on) | ST7735R SPI TFT (separate `hardware.tft` section — the `oled` flag being off does not mean screenless) | Serial `/dev/cu.usbmodem1101` (path changes per session — re-check `ls /dev/cu.*`); custom preview build |
 
 Firmware: MicroPython v1.28.0-preview (custom build), **DEV mode** = app runs
 from the filesystem. `toggle_mode.py` renames `jukeplayer/` ↔ `_jukeplayer/`
@@ -130,6 +130,10 @@ python3 -m mpremote connect /dev/cu.usbmodemXXXX reset
   coincide. The bench needs a solid 5V supply (verified: fails on a marginal
   Mac port, runs on a phone charger).
 - The RTS/DTR "reset pulse" trick for USB-UART boards does nothing here.
+- **MicroPython file writes**: always `close()` (or a named handle) before
+  re-reading a just-written file — MicroPython does not refcount-flush file
+  objects, so `json.dump(c, open(p,'w'))` can leave data unflushed when the
+  same statement re-reads the file.
 
 ## Config deployment
 
