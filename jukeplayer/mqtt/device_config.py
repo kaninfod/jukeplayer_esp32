@@ -42,7 +42,7 @@ SENSORS = [
             "value_template": "{{ value_json.player_status }}",
             "icon": "mdi:play-circle",
             "device_class": "enum",
-            "options": ["PLAY", "PAUSE", "STOP"],
+            "options": ["idle", "PLAY", "PAUSE", "STOP"],
         },
     },
     {
@@ -66,7 +66,7 @@ SENSORS = [
             "value_template": "{{ value_json.network_status }}",
             "icon": "mdi:wifi",
             "device_class": "enum",
-            "options": ["ws_connecting", "ws_connected", "ws_error", "wifi_disconnected", "unknown"],
+            "options": ["WS:OK", "WS:CON", "WS:ERR"],
         },
     },
     {

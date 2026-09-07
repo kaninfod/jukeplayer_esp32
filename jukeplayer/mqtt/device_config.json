@@ -40,10 +40,10 @@
 				"icon": "mdi:play-circle",
 				"device_class": "enum",
 				"options": [
-					"playing",
-					"paused",
-					"stopped",
-					"idle"
+					"idle",
+					"PLAY",
+					"PAUSE",
+					"STOP"
 				]
 			}
 		},
@@ -69,11 +69,9 @@
 				"icon": "mdi:wifi",
 				"device_class": "enum",
 				"options": [
-					"ws_connecting",
-					"ws_connected",
-					"ws_error",
-					"wifi_disconnected",
-					"unknown"
+					"WS:OK",
+					"WS:CON",
+					"WS:ERR"
 				]
 			}
 		},

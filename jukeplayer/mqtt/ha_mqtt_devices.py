@@ -35,6 +35,10 @@ class HAMQTTService:
 
         self.client_name = self.config.get("client", {}).get("name", "JukePlayer")
         self.device_id = self.config.get("client", {}).get("device_id", "jukeplayer_esp32")
+        self.node_id = self.client_name.replace(" ", "_").lower()
+        # Retained LWT topic: HA marks all entities unavailable when the device
+        # or its MQTT connection drops
+        self.availability_topic = b"jukeplayer/" + self.node_id.encode("utf-8") + b"/availability"
 
         # Debounced publish state for rapid AppState deltas.
         self._pending_state = {}
@@ -95,7 +99,7 @@ class HAMQTTService:
             return []
 
     def _initialize_discovery(self):
-        node_id = self.client_name.replace(" ", "_").lower().encode("utf-8") # self.device_id.encode("utf-8") if isinstance(self.device_id, str) else self.device_id
+        node_id = self.node_id.encode("utf-8")
         device_config = {
             "identifiers": [self.device_id],
             "name": self.client_name,
@@ -103,7 +107,14 @@ class HAMQTTService:
             "manufacturer": "JukePlayer Team",
             "sw_version": "1.0.0",
         }
-        group_conf = {"device": device_config}
+        # Availability propagates to every entity in the group via
+        # EntityGroup._update_extra_conf
+        group_conf = {
+            "device": device_config,
+            "availability_topic": self.availability_topic.decode("utf-8"),
+            "payload_available": "online",
+            "payload_not_available": "offline",
+        }
 
         self.entity_group = EntityGroup(self.mqtt_client, node_id=node_id, extra_conf=group_conf)
         self.entities = []
@@ -178,11 +189,15 @@ class HAMQTTService:
                     password=self.password if self.password else None,
                     keepalive=60
                 )
+                # Last will: the broker flips every entity to "unavailable" if
+                # the connection drops without a clean disconnect
+                self.mqtt_client.set_last_will(self.availability_topic, b"offline", True, 1)
 
                 self.mqtt_client.connect()
                 self.logger.info("[MQTT] Connected successfully!")
                 self._connected = True
                 reconnect_delay = 2
+                self.mqtt_client.publish(self.availability_topic, b"online", True, 1)
                 
                 self._initialize_discovery()
                 self.publish_snapshot(reason="initial")
@@ -341,6 +356,11 @@ class HAMQTTService:
     def cleanup(self):
         """Clean up MQTT client connections."""
         if self.mqtt_client:
+            try:
+                # Clean disconnects don't trigger the LWT — mark offline explicitly
+                self.mqtt_client.publish(self.availability_topic, b"offline", True, 1)
+            except Exception:
+                pass
             try:
                 self.mqtt_client.disconnect()
             except Exception:
