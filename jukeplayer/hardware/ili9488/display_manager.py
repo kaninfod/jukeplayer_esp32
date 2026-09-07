@@ -257,17 +257,6 @@ class DisplayManager:
                 self._message_timeout(duration)
             )
 
-    def dismiss_message(self):
-        """Hide the temporary message overlay immediately."""
-        if self._message_timer_task:
-            try:
-                self._message_timer_task.cancel()
-            except RuntimeError:
-                pass
-            self._message_timer_task = None
-        self.current_screen.clear_message()
-        self._schedule_refresh()
-
     async def _message_timeout(self, duration):
         """Clear the message after the given duration."""
         try:

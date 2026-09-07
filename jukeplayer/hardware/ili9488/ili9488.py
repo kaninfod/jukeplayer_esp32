@@ -12,7 +12,7 @@ from time import sleep_ms
 import gc
 import framebuf
 import asyncio
-from jukeplayer.hardware.ili9488.boolpalette import BoolPalette
+from jukeplayer.hardware.boolpalette import BoolPalette
 from jukeplayer.core.logger import log
 
 

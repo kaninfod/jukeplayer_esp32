@@ -178,7 +178,7 @@ class JukeBoxApp:
 
     async def _telemetry_loop(self):
         """Handle background telemetry and timed tasks."""
-        import time, asyncio
+        import time, asyncio, gc
 
         logger = getattr(self, 'logger', log)
 
@@ -188,7 +188,13 @@ class JukeBoxApp:
                 now = time.ticks_ms()
                 if time.ticks_diff(now, self.last_memory_log) >= self.memory_log_interval:
                     self.last_memory_log = now
-                    self._log_memory_usage()
+                    # Traffic-independent GC tick: the recv-loop collect only runs
+                    # between received WS frames, so while the backend is silent no
+                    # gc.collect() executes anywhere and transient garbage piles up
+                    # uncollected (mem_alloc inflates until the next connection event).
+                    free_before = gc.mem_free()
+                    gc.collect()
+                    self._log_memory_usage((gc.mem_free() - free_before) // 1024)
 
                 # Flush any queued syslog log lines
                 await logger.flush_syslog()
@@ -202,8 +208,8 @@ class JukeBoxApp:
                 logger.info(f"Telemetry loop error: {e}")
                 await asyncio.sleep(1)
 
-    def _log_memory_usage(self):
-        """Log current memory usage in KB."""
+    def _log_memory_usage(self, reclaimed_kb=0):
+        """Log current memory usage in KB (measured after the 30s GC tick)."""
         import gc
         logger = getattr(self, 'logger', log)
         try:
@@ -215,7 +221,7 @@ class JukeBoxApp:
             used_pct = (alloc_kb * 100) // total_kb if total_kb > 0 else 0
 
             self.state.set({MEMORY_USAGE: used_pct, CLIENT_ID: self.client_id or ""})
-            logger.info(f"[MEM] Free: {free_kb} KB | Used: {used_pct}% ({alloc_kb} KB allocated)")
+            logger.info(f"[MEM] Free: {free_kb} KB | Used: {used_pct}% ({alloc_kb} KB allocated) | GC reclaimed: {reclaimed_kb} KB")
         except Exception as e:
             logger.info(f"[MEM] Error reading memory: {e}")
 

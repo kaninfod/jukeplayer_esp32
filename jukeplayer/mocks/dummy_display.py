@@ -1,5 +1,6 @@
-# jukeplayer/gui/dummy_oled.py
-class DummyOLEDScroller:
+# jukeplayer/mocks/dummy_display.py — shared display mock (models the
+# DisplayManager API; used by the factory for any disabled/failed display).
+class DummyDisplay:
     def __init__(self):
         pass
     def start(self): pass
@@ -12,3 +13,4 @@ class DummyOLEDScroller:
     def set_text(self, title): pass
     def update(self, state={}): pass
     def toggle_backlight(self): pass
+    def show_message(self, message, duration=5): pass

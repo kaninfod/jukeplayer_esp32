@@ -6,7 +6,7 @@ from jukeplayer.nanogui.core.nanogui import refresh
 from jukeplayer.nanogui.widgets.label import Label, ALIGN_LEFT, ALIGN_CENTER, ALIGN_RIGHT
 from jukeplayer.nanogui.fonts import geistmonobold18, geistmonobold14, material_subset
 # from machine import I2C, Pin
-import jukeplayer.hardware.ssd1306.ssd1306 as ssd1306
+import jukeplayer.hardware.oled.ssd1306 as ssd1306
 
 
 class DisplayManager:

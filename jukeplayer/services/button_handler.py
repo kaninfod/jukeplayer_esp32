@@ -44,7 +44,6 @@ class ButtonHandler:
 
         # Specific handlers
         self._register("nfc_card", self._handle_nfc_card)
-        self._register(("encoder_sw", "long"), self._handle_encoder_long)
         self._register(("stop", "long"), self._handle_hardware_reset)
         self._register(("utility_button", "long"), self._handle_volume_mute)
         self._register(("utility_button", "double"), self._handle_repeat_toggle)
@@ -109,13 +108,6 @@ class ButtonHandler:
         nfc_service = NFCService(self.app)
         await nfc_service.handle_microswitch_press()
         self.app.logger.info("NFC card detected via microswitch")
-
-    async def _handle_encoder_long(self):
-        label = self._get_label("encoder_sw")
-        if self.app.display.current_screen.message_active:
-            self.app.display.dismiss_message()
-        else:
-            self.app.display.show_message(f"{label} long press...", duration=10)
 
     async def _handle_backlight_toggle(self):
         self.app.logger.info("Toggling backlight")

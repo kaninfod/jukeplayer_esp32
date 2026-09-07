@@ -81,22 +81,22 @@ class HardwareFactory:
         if not cfg.get("enabled", True):
             log.info("OLED Scroller: Initializing in DUMMY mode")
             # pyrefly: ignore [missing-import]
-            from jukeplayer.mocks.dummy_oled import DummyOLEDScroller
-            return DummyOLEDScroller()
-            
+            from jukeplayer.mocks.dummy_display import DummyDisplay
+            return DummyDisplay()
+
         try:
-            from jukeplayer.hardware.display_manager import DisplayManager
+            from jukeplayer.hardware.oled.display_manager import DisplayManager
             log.info(f"OLED Display manager: Initializing with config: {cfg}")
             sda_pin = Pin(cfg.get("sda", 13))
             scl_pin = Pin(cfg.get("scl", 14))
             i2c_unit = cfg.get("i2c_unit", 0)
             i2c = I2C(i2c_unit, sda=sda_pin, scl=scl_pin, freq=cfg.get("freq", 400000))
-            
+
             return DisplayManager(i2c, app_state=app_state)
         except Exception as e:
             log.error(f"Failed to init physical OLED: {e}. Falling back to Dummy OLED.")
-            from jukeplayer.mocks.dummy_oled import DummyOLEDScroller
-            return DummyOLEDScroller()
+            from jukeplayer.mocks.dummy_display import DummyDisplay
+            return DummyDisplay()
 
     def get_tft_display(self, app_state):
         """Initialize TFT display manager selected by hardware.tft.driver."""

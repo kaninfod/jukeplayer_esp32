@@ -20,7 +20,7 @@ from time import sleep_ms
 import framebuf
 import gc
 import micropython
-from jukeplayer.hardware.ssd1306.boolpalette import BoolPalette
+from jukeplayer.hardware.boolpalette import BoolPalette
 
 # Datasheet para 8.4 scl write cycle 66ns == 15MHz
 

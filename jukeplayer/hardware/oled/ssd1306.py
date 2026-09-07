@@ -2,7 +2,7 @@
 
 from micropython import const
 import framebuf
-from jukeplayer.hardware.ssd1306.boolpalette import BoolPalette
+from jukeplayer.hardware.boolpalette import BoolPalette
 
 # register definitions
 SET_CONTRAST = const(0x81)
