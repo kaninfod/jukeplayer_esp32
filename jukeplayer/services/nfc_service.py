@@ -79,7 +79,7 @@ class NFCService:
             if context:
                 self.app.logger.info(f"[{context}] Starting write_data for album_id: {album_id}")
             
-            result = self.app.nfc.write_data(album_id, timeout_ms=30000)
+            result = await self.app.nfc.write_data(album_id, timeout_ms=30000)
             
             if context:
                 self.app.logger.info(f"[{context}] Result - status: {result.get('status')}, uid: {result.get('uid')}")

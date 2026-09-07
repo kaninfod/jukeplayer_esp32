@@ -155,16 +155,30 @@ class HAMQTTService:
                 gc.collect()
                 self.logger.info(f"[MQTT] Connecting to broker {self.broker}:{self.port}...")
                 client_id = f"jukeplayer_{self.device_id}"
-                
+
+                # Async reachability pre-check: umqtt's connect() is a blocking
+                # socket call with no timeout; probing the broker cooperatively
+                # first keeps an unreachable broker from stalling the whole
+                # event loop for tens of seconds on every reconnect attempt.
+                try:
+                    _probe_reader, _probe_writer = await asyncio.wait_for(
+                        asyncio.open_connection(self.broker, self.port), 5
+                    )
+                    _probe_writer.close()
+                    await _probe_writer.wait_closed()
+                except Exception as probe_err:
+                    self.logger.info(f"[MQTT] Broker unreachable: {probe_err}")
+                    raise  # fall through to the shared backoff path
+
                 self.mqtt_client = MQTTClient(
-                    client_id=client_id, 
-                    server=self.broker, 
+                    client_id=client_id,
+                    server=self.broker,
                     port=self.port,
-                    user=self.user if self.user else None, 
+                    user=self.user if self.user else None,
                     password=self.password if self.password else None,
                     keepalive=60
                 )
-                
+
                 self.mqtt_client.connect()
                 self.logger.info("[MQTT] Connected successfully!")
                 self._connected = True

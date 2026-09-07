@@ -1,13 +1,11 @@
 from jukeplayer.core.state_constants import *
 from jukeplayer.core.logger import log
 import asyncio
-import socket
 import time
 from machine import Pin
 from jukeplayer.nanogui.core.writer import CWriter
 from jukeplayer.nanogui.widgets.label import Label, ALIGN_LEFT, ALIGN_CENTER, ALIGN_RIGHT
 from jukeplayer.nanogui.fonts import geistmonobold24, geistmonobold18, geistmonobold14, material_subset
-import jukeplayer.hardware.ili9488.ili9488 as ili9488
 import jukeplayer.hardware.ili9488.ili9488 as ili9488
 
 
@@ -68,6 +66,10 @@ class CoverArtDownloader:
         return True
 
     async def _http_get(self, url, timeout=10):
+        """Fetch over a cooperatively-scheduled socket: connect, send and all
+        reads yield to the event loop, so a slow cover server cannot stall
+        WS pings, buttons or the display.
+        """
         proto, _, hostpath = url.partition("://")
         if proto not in ("http", ""):
             raise ValueError("Only HTTP URLs supported")
@@ -78,23 +80,41 @@ class CoverArtDownloader:
             host, port = host.split(":")
             port = int(port)
 
-        addr = socket.getaddrinfo(host, port, 0, socket.SOCK_STREAM)[0][-1]
-        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        sock.settimeout(timeout)
-        sock.connect(addr)
+        reader, writer = await asyncio.wait_for(
+            asyncio.open_connection(host, port), timeout
+        )
         try:
             request = f"GET {path} HTTP/1.0\r\nHost: {host}\r\nConnection: close\r\n\r\n"
-            sock.sendall(request.encode())
-            deadline = time.ticks_add(time.ticks_ms(), timeout * 1000)
+            writer.write(request.encode())
+            await writer.drain()
+
             chunks = []
-            while time.ticks_diff(deadline, time.ticks_ms()) > 0:
-                chunk = sock.recv(1024)
+            deadline = time.ticks_add(time.ticks_ms(), timeout * 1000)
+            while True:
+                remaining_ms = time.ticks_diff(deadline, time.ticks_ms())
+                if remaining_ms <= 0:
+                    raise TimeoutError("cover download timed out")
+                try:
+                    chunk = await asyncio.wait_for(
+                        reader.read(1024), remaining_ms / 1000
+                    )
+                except asyncio.TimeoutError:
+                    raise TimeoutError("cover download timed out")
                 if not chunk:
                     break
                 chunks.append(chunk)
             response = b"".join(chunks)
         finally:
-            sock.close()
+            try:
+                writer.close()
+                await writer.wait_closed()
+            except Exception:
+                pass
+
+        header_end = response.find(b"\r\n\r\n")
+        if header_end < 0:
+            raise ValueError("Invalid HTTP response")
+        return response[header_end + 4 :]
 
         header_end = response.find(b"\r\n\r\n")
         if header_end < 0:

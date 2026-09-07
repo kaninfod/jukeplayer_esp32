@@ -6,6 +6,6 @@ class DummyNFCReader:
     def deselect_chip(self): pass
     def read_album_id(self, block=4):
         return None
-    def write_data(self, album_id, block=4, timeout_ms=30000):
-        # Can return a simulated success payload for testing
+    async def write_data(self, album_id, block=4, timeout_ms=30000):
+        # Simulated success payload, matching the async NFCReader contract
         return {"status": "success", "uid": "0xDUMMY_NFC"}

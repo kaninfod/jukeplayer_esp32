@@ -1,6 +1,7 @@
 import jukeplayer.hardware.rc522 as rc522
 from jukeplayer.core.logger import log
 from machine import Pin
+import asyncio
 import time
 
 class NFCReader:
@@ -169,14 +170,18 @@ class NFCReader:
         finally:
             self.deselect_chip()
     
-    def write_data(self, album_id, block=4, timeout_ms=None):
+    async def write_data(self, album_id, block=4, timeout_ms=None):
         """Write album_id to NFC card block 4 with timeout protection.
-        
+
+        Async so the wait-for-card polling loop yields to the event loop;
+        the RC522 register operations themselves are short blocking SPI
+        transactions (same cost class as display.show()).
+
         Args:
             album_id: Album ID string to write (will be padded to 16 bytes)
             block: Block number to write to (default 4)
             timeout_ms: Timeout for write operation (uses self.timeout_ms if None)
-            
+
         Returns:
             dict with keys:
             - status: "success", "timeout", or "error"
@@ -185,24 +190,24 @@ class NFCReader:
         """
         if self.dummy_mode:
             return {"status": "success", "uid": "0xDUMMY", "album_id": album_id}
-        
+
         if timeout_ms is None:
             timeout_ms = self.timeout_ms
-        
+
         self.select_chip()
         start_time = time.ticks_ms()
-        
+
         try:
             log.info(f"LOG: NFC write starting to block {block}")
             log.info(f"LOG: NFC write timeout: {timeout_ms}ms - waiting for card...")
-            
+
             # Poll for card presence repeatedly until timeout
             while True:
                 elapsed = time.ticks_diff(time.ticks_ms(), start_time)
                 if elapsed > timeout_ms:
                     log.info(f"LOG: NFC write timeout after {elapsed}ms - no card detected")
                     return {"status": "timeout", "uid": None, "error_message": f"No card detected within {timeout_ms}ms"}
-                
+
                 # Check for card presence
                 try:
                     (stat, tag_type) = self.rdr.request(self.rdr.REQIDL)
@@ -212,9 +217,10 @@ class NFCReader:
                 except Exception as e:
                     # No card yet, keep polling
                     pass
-                
-                # Small delay before next attempt (avoid tight polling)
-                time.sleep_ms(100)
+
+                # Small delay before next attempt (avoid tight polling) — yields
+                # to the event loop instead of stalling it for up to 30s
+                await asyncio.sleep_ms(100)
             
             # At this point, card was detected (stat == OK from polling loop)
             # Check timeout
