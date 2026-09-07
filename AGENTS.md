@@ -10,8 +10,8 @@ WebSocket client to the backend player, Home Assistant integration via MQTT,
 display backends (I²C SSD1306 OLED, ST7735R TFT, ILI9488 480×320 SPI),
 RC522 NFC read/write, rotary encoder, pushbuttons, and buffered UDP syslog.
 The backend (separate repo) owns playback; the devices render state and send
-commands. `src/` holds a reference copy of micropython-nano-gui — the app only
-imports the hand-vendored fork in `jukeplayer/nanogui/`.
+commands. The app only imports the hand-vendored fork in `jukeplayer/nanogui/`
+(the reference copy in `src/` was removed on 2026-09-07).
 
 ## Architecture — the law
 
@@ -137,11 +137,23 @@ python3 -m mpremote connect /dev/cu.usbmodemXXXX reset
 
 ## Config deployment
 
-`boot.py` loads `config.json` from the **device root**. Copy the matching
-`config_files/<variant>/config.json` to the device root as `config.json`.
-It contains device secrets and is not committed to git. Historical commits of
-`config_files/*.json` contain plaintext WiFi/MQTT/WebREPL credentials — treat
-as compromised; new devices must receive secrets out-of-band.
+`boot.py` loads `config.json` from the **device root**.
+
+- **Tracked template**: `config_files/example.config.json` — the Klangmeister
+  configuration with secrets replaced by `<placeholders>`; copy it and fill in
+  secrets out-of-band (never commit real secrets).
+- **Preserved real configs** (on disk, gitignored, never committed):
+  `config_files/testbench/config.json` and `config_files/S3/config.json`.
+  Refresh them from the device if they drift (webrepl GET for Klangmeister,
+  `mpremote cp :config.json <dest>` for the bench).
+- Both patterns are gitignored (`config.json`, `config_files/**/config.json`),
+  as are the device artifacts `webrepl_cfg.py` and `*.mpy`.
+- Historical commits still contain old plaintext credentials — treat as
+  compromised; rotation is pending.
+
+For a full device rebuild (e.g. after a filesystem wipe): flash the custom
+firmware, copy the preserved config to the device root as `config.json`,
+deploy the `jukeplayer/` tree, then soft reset.
 
 ## Verification recipes
 
