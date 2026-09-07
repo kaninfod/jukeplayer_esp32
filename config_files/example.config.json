@@ -22,9 +22,9 @@
 		"timeout_ms": 5000
 	},
 	"logging": {
-		"level": "INFO",
+		"level": "DEBUG",
 		"console": {
-			"enabled": true
+			"enabled": false
 		},
 		"syslog": {
 			"enabled": true,

@@ -123,12 +123,22 @@ python3 -m mpremote connect /dev/cu.usbmodemXXXX reset
 - **USB-CDC console only transmits with DTR asserted** — passive pyserial
   reads with `dtr=False` see nothing; always open with `dtr=True` (safe: the
   board has no DTR/RTS auto-reset circuit on native USB).
-- **Power sensitivity**: a sagging USB supply manifests as USB-CDC drops
-  (host sees Errno 6 "Device not configured") *while the app keeps running*,
-  and occasionally transient flash-read ImportErrors for modules that exist.
-  It bites hardest when radio TX (WS handshake), display SPI and backlight
-  coincide. The bench needs a solid 5V supply (verified: fails on a marginal
-  Mac port, runs on a phone charger).
+- **CDC console prints can block the app** (confirmed 2026-09-07):
+  [micropython#18000](https://github.com/micropython/micropython/issues/18000)
+  — on ESP32-S3, `print()` blocks indefinitely when the cable is connected but
+  no CDC reader is attached/draining. At DEBUG volume the freeze lands
+  mid-boot ("screen fully booted, syslog never starts"). The app does not
+  crash — it freezes until a reader re-attaches. Also see
+  [micropython#7820](https://github.com/micropython/micropython/issues/7820)
+  (CDC stalls on boot/hard reset) and
+  [esp-hal#1138](https://github.com/esp-rs/esp-hal/issues/1138) (USB stops when
+  the WiFi controller starts — same silicon block).
+  **Policy**: devices run with `logging.console.enabled: false` — syslog is
+  the observation channel and never blocks. Crash tracebacks in `main.py` are
+  routed through the logger, never `sys.print_exception`. Durable fix is a
+  firmware with the stdout TX timeout (micropython PR #9638 direction).
+  A marginal supply can still aggravate USB-CDC flakiness — a solid 5V
+  supply and a decent cable remain sensible, but power is NOT the root cause.
 - The RTS/DTR "reset pulse" trick for USB-UART boards does nothing here.
 - **MicroPython file writes**: always `close()` (or a named handle) before
   re-reading a just-written file — MicroPython does not refcount-flush file

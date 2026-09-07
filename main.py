@@ -48,8 +48,16 @@ def start_app():
         # deliberate interrupt (Thonny / REPL sessions): stay down
         log.info("App stopped by KeyboardInterrupt")
     except Exception as e:
+        # Route the traceback through the logger (syslog) instead of printing
+        # to the CDC console: sys.print_exception writes to stdout, which can
+        # BLOCK the app when no USB CDC reader is attached (micropython#18000)
+        import io
         log.error("Application crashed:")
-        sys.print_exception(e)
+        buf = io.StringIO()
+        sys.print_exception(e, buf)
+        for crash_line in buf.getvalue().split("\n"):
+            if crash_line:
+                log.error(crash_line)
         crashes = _bump_crash_counter()
         if crashes >= MAX_CRASHES:
             log.error(
