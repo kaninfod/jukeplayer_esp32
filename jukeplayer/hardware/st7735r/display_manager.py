@@ -164,15 +164,17 @@ class StatusScreen:
 
         safe_width = max(1, self.display.width - 1)
         top_row = 2
-        row_artist = 44
-        row_title = 70
-        row_title_2 = 88
-        row_message = 108
+        row_artist = 29
+        row_album = 47
+        row_title = 65
+        row_title_2 = 83
+        row_message = 101
 
         self.label_net = Label(self.writer_symbols, top_row, 0, 64, align=ALIGN_LEFT, bdcolor=False)
         self.label_player_status = Label(self.writer_symbols, top_row, max(0, safe_width - 63), 63, align=ALIGN_RIGHT, bdcolor=False)
         self.label_volume = Label(self.writer_small, top_row, 65, 20, align=ALIGN_CENTER, bdcolor=False)
         self.label_artist = Label(self.writer_small, row_artist, 0, safe_width, align=ALIGN_CENTER, bdcolor=False)
+        self.label_album = Label(self.writer_small, row_album, 0, safe_width, align=ALIGN_CENTER, bdcolor=False)
         self.label_title1 = Label(self.writer_small, row_title, 0, safe_width, align=ALIGN_CENTER, bdcolor=False)
         self.label_title2 = Label(self.writer_small, row_title_2, 0, safe_width, align=ALIGN_CENTER, bdcolor=False)
         self.label_message = Label(self.writer_mini, row_message, 0, safe_width, align=ALIGN_CENTER, bdcolor=False)
@@ -185,6 +187,7 @@ class StatusScreen:
         self.label_player_status.show()
         self.label_volume.show()
         self.label_artist.show()
+        self.label_album.show()
         self.label_title1.show()
         self.label_title2.show()
         self.label_message.show()
@@ -203,6 +206,8 @@ class StatusScreen:
             self._set_volume(state[VOLUME])
         if ARTIST in state:
             self._set_artist(state[ARTIST])
+        if ALBUM in state:
+            self._set_album(state[ALBUM])
         if TITLE in state:
             self._set_title(state[TITLE])
         if PLAYER_STATUS in state:
@@ -238,6 +243,9 @@ class StatusScreen:
 
     def _set_artist(self, artist):
         self.label_artist.value(str(artist or ""))
+
+    def _set_album(self, album):
+        self.label_album.value(str(album or ""))
 
     def _set_title(self, title):
         title = str(title or "")
