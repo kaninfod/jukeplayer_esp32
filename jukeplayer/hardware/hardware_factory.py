@@ -1,6 +1,6 @@
 # jukeplayer/lib/hardware_factory.py
 from jukeplayer.core.logger import log
-from machine import Pin, SPI, I2C
+from machine import Pin, SPI
 
 class HardwareFactory:
     def __init__(self, config):
@@ -73,30 +73,13 @@ class HardwareFactory:
         
     def get_display(self, app_state):
         tft_cfg = self.config.get("tft", {})
-        if tft_cfg.get("enabled", False):
-            log.info("Display factory: selecting TFT display")
-            return self.get_tft_display(app_state=app_state)
-
-        cfg = self.config.get("oled", {})
-        if not cfg.get("enabled", True):
-            log.info("OLED Scroller: Initializing in DUMMY mode")
-            # pyrefly: ignore [missing-import]
+        if not tft_cfg.get("enabled", False):
+            # Headless mode: the app runs without a display (diagnostics)
+            log.info("Display factory: TFT disabled — running headless (DummyDisplay)")
             from jukeplayer.mocks.dummy_display import DummyDisplay
             return DummyDisplay()
-
-        try:
-            from jukeplayer.hardware.oled.display_manager import DisplayManager
-            log.info(f"OLED Display manager: Initializing with config: {cfg}")
-            sda_pin = Pin(cfg.get("sda", 13))
-            scl_pin = Pin(cfg.get("scl", 14))
-            i2c_unit = cfg.get("i2c_unit", 0)
-            i2c = I2C(i2c_unit, sda=sda_pin, scl=scl_pin, freq=cfg.get("freq", 400000))
-
-            return DisplayManager(i2c, app_state=app_state)
-        except Exception as e:
-            log.error(f"Failed to init physical OLED: {e}. Falling back to Dummy OLED.")
-            from jukeplayer.mocks.dummy_display import DummyDisplay
-            return DummyDisplay()
+        log.info("Display factory: selecting TFT display")
+        return self.get_tft_display(app_state=app_state)
 
     def get_tft_display(self, app_state):
         """Initialize TFT display manager selected by hardware.tft.driver."""

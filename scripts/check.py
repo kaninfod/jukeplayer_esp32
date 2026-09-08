@@ -23,10 +23,9 @@ DEVICE_FILES = [ROOT / "boot.py", ROOT / "main.py", ROOT / "toggle_mode.py"] + s
 )
 
 MANAGERS = {
-    "OLED    DisplayManager": (ROOT / "jukeplayer/hardware/oled/display_manager.py", "DisplayManager"),
     "ST7735R DisplayManager": (ROOT / "jukeplayer/hardware/st7735r/display_manager.py", "DisplayManager"),
     "ILI9488 DisplayManager": (ROOT / "jukeplayer/hardware/ili9488/display_manager.py", "DisplayManager"),
-    "DummyDisplay         ": (ROOT / "jukeplayer/mocks/dummy_display.py", "DummyDisplay"),
+    "DummyDisplay (headless)": (ROOT / "jukeplayer/mocks/dummy_display.py", "DummyDisplay"),
 }
 
 # The lifecycle/API contract every display backend must honor.
