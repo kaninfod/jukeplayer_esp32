@@ -116,10 +116,13 @@ python3 -m mpremote connect /dev/cu.usbmodemXXXX reset
 
 ### Bench quirks (learned 2026-09-07 — don't rediscover these)
 
-- **Stuck raw REPL**: an interrupted tool session (Thonny) can leave the device
-  in raw paste mode, where **`main.py` does not auto-run** after a soft reset —
-  symptom: boot.py runs, console shows `raw REPL; CTRL-B to exit`, app never
-  starts. Recovery: send Ctrl-B (exit raw REPL), then a soft reset.
+- **Stuck raw REPL**: an interrupted tool session (Thonny) — and **`mpremote
+  exec` itself** (it runs in raw REPL; a reset mid-session leaves that state) —
+  can leave the device in raw paste mode, where **`main.py` does not auto-run**
+  after a soft reset — symptom: boot.py runs, console shows `raw REPL; CTRL-B
+  to exit`, app never starts. Recovery: send Ctrl-B (exit raw REPL), then a
+  soft reset. Note: `mpremote exec` also soft-resets the device first, so
+  `sys.modules` probes from exec are meaningless for detecting a running app.
 - **USB-CDC console only transmits with DTR asserted** — passive pyserial
   reads with `dtr=False` see nothing; always open with `dtr=True` (safe: the
   board has no DTR/RTS auto-reset circuit on native USB).
