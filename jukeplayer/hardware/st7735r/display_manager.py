@@ -3,7 +3,7 @@ import asyncio
 from jukeplayer.nanogui.core.writer import CWriter
 from jukeplayer.nanogui.core.nanogui import refresh
 from jukeplayer.nanogui.widgets.label import Label, ALIGN_LEFT, ALIGN_CENTER, ALIGN_RIGHT
-from jukeplayer.nanogui.fonts import geistmonobold18, geistmonobold14, material_subset
+from jukeplayer.nanogui.fonts import geistmonobold10, geistmonobold18, geistmonobold14, material_subset
 import jukeplayer.hardware.st7735r.st7735r as st7735r
 
 
@@ -50,6 +50,7 @@ class DisplayManager:
             CWriter(self.display, material_subset, fgcolor=yellow, bgcolor=black, verbose=False),
             CWriter(self.display, geistmonobold14, fgcolor=white, bgcolor=black, verbose=False),
             CWriter(self.display, geistmonobold18, fgcolor=white, bgcolor=black, verbose=False),
+            CWriter(self.display, geistmonobold10, fgcolor=yellow, bgcolor=black, verbose=False),
         )
 
         self.current_layout = "status"
@@ -159,22 +160,22 @@ class StatusScreen:
         self.writer_symbols = writers[0]
         self.writer_small = writers[1]
         self.writer_large = writers[2]
+        self.writer_mini = writers[3]
 
         safe_width = max(1, self.display.width - 1)
         top_row = 2
-        row_status = 24 if self.display.height >= 96 else 18
-        row_artist = 48 if self.display.height >= 96 else 34
-        row_title = 74 if self.display.height >= 120 else 52
-        row_title_2 = 94 if self.display.height >= 120 else 52
+        row_artist = 44
+        row_title = 70
+        row_title_2 = 88
+        row_message = 108
 
         self.label_net = Label(self.writer_symbols, top_row, 0, 64, align=ALIGN_LEFT, bdcolor=False)
         self.label_player_status = Label(self.writer_symbols, top_row, max(0, safe_width - 63), 63, align=ALIGN_RIGHT, bdcolor=False)
         self.label_volume = Label(self.writer_small, top_row, 65, 20, align=ALIGN_CENTER, bdcolor=False)
-        # self.label_volume = Label(self.writer_small, row_status, 0, safe_width, align=ALIGN_CENTER, bdcolor=False)
         self.label_artist = Label(self.writer_small, row_artist, 0, safe_width, align=ALIGN_CENTER, bdcolor=False)
-        self.label_artist2 = Label(self.writer_small, row_artist, 0, safe_width, align=ALIGN_CENTER, bdcolor=False)
         self.label_title1 = Label(self.writer_small, row_title, 0, safe_width, align=ALIGN_CENTER, bdcolor=False)
         self.label_title2 = Label(self.writer_small, row_title_2, 0, safe_width, align=ALIGN_CENTER, bdcolor=False)
+        self.label_message = Label(self.writer_mini, row_message, 0, safe_width, align=ALIGN_CENTER, bdcolor=False)
         self.message_active = False
 
         refresh(self.display, clear=True)
@@ -186,7 +187,7 @@ class StatusScreen:
         self.label_artist.show()
         self.label_title1.show()
         self.label_title2.show()
-        self.label_artist2.show()
+        self.label_message.show()
 
     def set_initial_boot_state(self):
         self._set_title("Jukeplayer")
@@ -291,11 +292,12 @@ class StatusScreen:
         return line1, line2  
 
     def show_message(self, text, header="Message"):
+        """Render a notice into the dedicated bottom message field.
+        (header kept for API parity with the other managers; unused here)"""
         self.message_active = True
-        self.label_artist.value(str(header))
-        self.label_title1.value(str(text))
-        self.label_title2.value("")  # clear the previous track's second line
+        self.label_message.value(str(text))
 
     def clear_message(self):
         self.message_active = False
+        self.label_message.value("")
 
