@@ -7,11 +7,12 @@ changing anything; deviations need an explicit agreement (Tier 3 below).
 
 MicroPython (ESP32 / ESP32-S3) companion devices for a jukebox backend:
 WebSocket client to the backend player, Home Assistant integration via MQTT,
-display backends (I²C SSD1306 OLED, ST7735R TFT, ILI9488 480×320 SPI),
-RC522 NFC read/write, rotary encoder, pushbuttons, and buffered UDP syslog.
-The backend (separate repo) owns playback; the devices render state and send
-commands. The app only imports the hand-vendored fork in `jukeplayer/nanogui/`
-(the reference copy in `src/` was removed on 2026-09-07).
+display backends (ST7735R and ILI9488 SPI TFT — the I²C SSD1306 OLED backend
+was removed on 2026-09-07), RC522 NFC read/write, rotary encoder, pushbuttons,
+and buffered UDP syslog. The backend (separate repo) owns playback; the
+devices render state and send commands. The app only imports the
+hand-vendored fork in `jukeplayer/nanogui/` (the reference copy in `src/`
+was removed on 2026-09-07).
 
 ## Architecture — the law
 
@@ -29,10 +30,12 @@ commands. The app only imports the hand-vendored fork in `jukeplayer/nanogui/`
    frame reads stays for fragmentation control before cover blits. Watch the
    `[MEM] ... | GC reclaimed:` line: ≈0–2 KB per tick when idle is healthy;
    a steady climb in that column means a real retention leak.
-4. **HardwareFactory + dummy fallbacks.** Every peripheral (OLED, NFC, encoder,
+4. **HardwareFactory + dummy fallbacks.** Every peripheral (NFC, encoder,
    buttons, LEDs) degrades to a mock from `jukeplayer/mocks/` when disabled or
-   failing. TFT display failure halts boot on purpose (a screenless jukebox is
-   dead). Dummies must honor the same button-facing API as real managers.
+   failing. The display layer is TFT-only (st7735r/ili9488): `tft.enabled:
+   false` runs the app headless via `DummyDisplay`; a TFT init failure halts
+   boot on purpose (a screenless jukebox is dead). Dummies must honor the same
+   button-facing API as real managers.
 5. **AppState** uses small-int keys from `jukeplayer/core/state_constants.py`
    (memory-cheap). Subscribers are called as `cb(state=changed_delta)`.
    New keys append at the end of the numbering; never recycle indexes.

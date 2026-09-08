@@ -1,5 +1,5 @@
-# jukeplayer/mocks/dummy_display.py — shared display mock (models the
-# DisplayManager API; used by the factory for any disabled/failed display).
+# jukeplayer/mocks/dummy_display.py — headless-mode display mock (models the
+# DisplayManager API; the factory returns it when hardware.tft is disabled).
 class DummyDisplay:
     def __init__(self):
         pass
