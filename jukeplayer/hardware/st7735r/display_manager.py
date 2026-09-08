@@ -3,7 +3,7 @@ import asyncio
 from jukeplayer.nanogui.core.writer import CWriter
 from jukeplayer.nanogui.core.nanogui import refresh
 from jukeplayer.nanogui.widgets.label import Label, ALIGN_LEFT, ALIGN_CENTER, ALIGN_RIGHT
-from jukeplayer.nanogui.fonts import geistmonobold10, geistmonobold18, geistmonobold14, material_subset
+from jukeplayer.nanogui.fonts import geistmonobold10, geistmonobold16, geistmonobold18, geistmonobold14, material_subset
 import jukeplayer.hardware.st7735r.st7735r as st7735r
 
 
@@ -49,7 +49,7 @@ class DisplayManager:
         self.writers = (
             CWriter(self.display, material_subset, fgcolor=yellow, bgcolor=black, verbose=False),
             CWriter(self.display, geistmonobold14, fgcolor=white, bgcolor=black, verbose=False),
-            CWriter(self.display, geistmonobold18, fgcolor=white, bgcolor=black, verbose=False),
+            CWriter(self.display, geistmonobold16, fgcolor=white, bgcolor=black, verbose=False),
             CWriter(self.display, geistmonobold10, fgcolor=yellow, bgcolor=black, verbose=False),
         )
 
@@ -163,20 +163,21 @@ class StatusScreen:
         self.writer_mini = writers[3]
 
         safe_width = max(1, self.display.width - 1)
+        cyan = self.display.rgb(0, 200, 200)
         top_row = 2
-        row_artist = 29
-        row_album = 47
-        row_title = 65
-        row_title_2 = 83
-        row_message = 101
+        row_artist = 33
+        row_album = 60
+        row_title = 84
+        row_title_2 = 101
+        row_message = 117
 
         self.label_net = Label(self.writer_symbols, top_row, 0, 64, align=ALIGN_LEFT, bdcolor=False)
         self.label_player_status = Label(self.writer_symbols, top_row, max(0, safe_width - 63), 63, align=ALIGN_RIGHT, bdcolor=False)
         self.label_volume = Label(self.writer_small, top_row, 65, 20, align=ALIGN_CENTER, bdcolor=False)
-        self.label_artist = Label(self.writer_small, row_artist, 0, safe_width, align=ALIGN_CENTER, bdcolor=False)
+        self.label_artist = Label(self.writer_large, row_artist, 0, safe_width, align=ALIGN_CENTER, bdcolor=False)
         self.label_album = Label(self.writer_small, row_album, 0, safe_width, align=ALIGN_CENTER, bdcolor=False)
-        self.label_title1 = Label(self.writer_small, row_title, 0, safe_width, align=ALIGN_CENTER, bdcolor=False)
-        self.label_title2 = Label(self.writer_small, row_title_2, 0, safe_width, align=ALIGN_CENTER, bdcolor=False)
+        self.label_title1 = Label(self.writer_small, row_title, 0, safe_width, align=ALIGN_CENTER, bdcolor=False, fgcolor=cyan)
+        self.label_title2 = Label(self.writer_small, row_title_2, 0, safe_width, align=ALIGN_CENTER, bdcolor=False, fgcolor=cyan)
         self.label_message = Label(self.writer_mini, row_message, 0, safe_width, align=ALIGN_CENTER, bdcolor=False)
         self.message_active = False
 
