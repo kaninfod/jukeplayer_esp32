@@ -38,8 +38,16 @@ class NFCReader:
         if dummy_mode:
             print(f"LOG: NFC reader initialized in DUMMY MODE (no hardware reads)")
         else:
+            if self.spi_init:
+                self.spi_init(self.spi)
             self.rdr = rc522.MFRC522(rst_pin, cs_pin, spi)
             self.cs = Pin(cs_pin, Pin.OUT, value=1)
+            # Boot canary: prove the chip answers before the app goes live
+            # (single-transaction SPI protocol; see rc522.py _rreg note).
+            ver = self.rdr.read_version()
+            log.info(f"[NFC-INIT] rc522 version reg 0x37 = 0x{ver:02x} (expect 0x91/0x92)")
+            if ver not in (0x91, 0x92):
+                log.error(f"[NFC-INIT] rc522 version reg 0x37 = 0x{ver:02x} — chip not responding")
         
         self.default_key = [0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF]
         self.timeout_ms = timeout_ms
@@ -87,7 +95,8 @@ class NFCReader:
                 return None
             
             if stat != self.rdr.OK:
-                # No card detected
+                # No card detected (stat: 1=NOTAGERR, 2=ERR)
+                log.info(f"[MS-READ] request stat={stat} bits={tag_type}")
                 return None
             
             # Check timeout after each operation

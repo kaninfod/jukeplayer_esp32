@@ -54,6 +54,12 @@ was removed on 2026-09-07).
   tooling under `scripts/` may use CPython packages.
 - `machine.Pin` has **no** `.toggle()` on the ESP32 port — use
   `pin.value(not pin.value())`.
+- SPI register drivers: **one CS-framed transaction per register access** —
+  `spi.write_readinto(buf, buf)` for reads, a single multi-byte `write` for
+  writes. Splitting address and data into separate `spi.write`/`spi.read`
+  calls returns a **stale byte** on IDF 5.4+ (`esp_driver_spi` rewrite) —
+  this silently broke RC522 register reads until 2026-09-14 (sticky `0x84`
+  instead of version `0x92`).
 - Deployed files need a **soft reset** (Ctrl+D) to take effect; imports are
   cached in the running interpreter.
 - Never add a dependency, abstraction, or file without consultation.

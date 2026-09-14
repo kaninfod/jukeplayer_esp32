@@ -31,19 +31,26 @@ class MFRC522:
 
 	def _wreg(self, reg, val):
 
+		# One continuous 16-bit transaction (address byte + data byte).
+		# Split write/write transactions return stale bytes on the IDF 5.4+
+		# SPI driver (2026-09-14 NFC investigation: single-transaction read
+		# returned 0x92 while the split protocol read 0x84 on the same chip).
 		self.cs.value(0)
-		self.spi.write(b'%c' % int(0xff & ((reg << 1) & 0x7e)))
-		self.spi.write(b'%c' % int(0xff & val))
+		self.spi.write(bytes(((reg << 1) & 0x7e, val & 0xff)))
 		self.cs.value(1)
 
 	def _rreg(self, reg):
 
+		# One continuous 16-bit transaction (address byte + dummy byte); the
+		# register value arrives in buf[1]. Split write+read returns a stale
+		# byte on the IDF 5.4+ SPI driver (esp_driver_spi).
+		buf = bytearray(2)
+		buf[0] = ((reg << 1) & 0x7e) | 0x80
 		self.cs.value(0)
-		self.spi.write(b'%c' % int(0xff & (((reg << 1) & 0x7e) | 0x80)))
-		val = self.spi.read(1)
+		self.spi.write_readinto(buf, buf)
 		self.cs.value(1)
 
-		return val[0]
+		return buf[1]
 
 	def _sflags(self, reg, mask):
 		self._wreg(reg, self._rreg(reg) | mask)
@@ -154,6 +161,10 @@ class MFRC522:
 			self._sflags(0x14, 0x03)
 		else:
 			self._cflags(0x14, 0x03)
+
+	def read_version(self):
+		# VersionReg 0x37: 0x91 = v1.0, 0x92 = v2.0/compatible clone
+		return self._rreg(0x37)
 
 	def request(self, mode):
 
