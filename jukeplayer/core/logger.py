@@ -89,7 +89,7 @@ class SyslogHandler:
 
     def __init__(self, host, port=514, facility="local0", hostname="jukeplayer",
                  tag="jukeplayer", boot_buffer_lines=50, max_queue_lines=200,
-                 flush_batch_size=50):
+                 flush_batch_size=50, flush_per_emit=True):
         self.host = host
         self.port = int(port)
         self.facility = self._facility_code(facility)
@@ -98,6 +98,7 @@ class SyslogHandler:
         self.boot_buffer_lines = max(0, int(boot_buffer_lines))
         self.max_queue_lines = max(self.boot_buffer_lines, int(max_queue_lines))
         self.flush_batch_size = max(1, int(flush_batch_size))
+        self.flush_per_emit = bool(flush_per_emit)
 
         self._online = False
         self._queue = []
@@ -120,6 +121,10 @@ class SyslogHandler:
         cap = self.max_queue_lines if self._online else self.boot_buffer_lines
         while len(self._queue) > cap:
             self._queue.pop(0)
+        if self.flush_per_emit and self._online:
+            # per-emit flush: a UDP sendto costs microseconds — the server then
+            # has every line even if the app freezes right after this one
+            self.flush_now()
 
     def mark_online(self):
         """Start flushing queued lines to the syslog server."""
@@ -138,8 +143,24 @@ class SyslogHandler:
             self._sock = None
             return False
 
+    def flush_now(self):
+        """Synchronous send of every queued line — usable from non-async
+        contexts (the crash path). One attempt per line, no backoff."""
+        if not self._online or not self._queue or not self._ensure_socket():
+            return
+        while self._queue:
+            line = self._queue.pop(0)
+            try:
+                self._sock.sendto(line.encode("utf-8"), (self.host, self.port))
+                self._failed_count = 0
+            except Exception:
+                # Put the line back and stop — the caller decides what's next.
+                self._queue.insert(0, line)
+                break
+
     async def flush(self):
-        """Send queued syslog lines. Should be called from an async loop."""
+        """Send queued syslog lines (batched, with failure backoff). Should be
+        called from an async loop."""
         if not self._online or not self._queue:
             return
 
@@ -169,6 +190,56 @@ class SyslogHandler:
                 self._queue.insert(0, line)
                 self._failed_count += 1
                 break
+
+
+class FileHandler:
+    """Boot-window + crash capture to a file on flash.
+
+    Buffers lines in RAM (bounded) and writes them in bursts, keeping flash
+    wear and loop stalls minimal:
+      - one burst write when the network comes up (captures the full
+        pre-network boot log, which syslog cannot flush offline)
+      - one write per explicit flush_now() (the crash path captures the last
+        lines before a reboot)
+    Run-time lines are carried by the SyslogHandler per-emit; the file is the
+    durable capture of everything syslog can lose.
+    """
+
+    def __init__(self, path, boot_buffer_lines=200, rotate_keep=3):
+        self.path = path
+        self.boot_buffer_lines = max(1, int(boot_buffer_lines))
+        self.rotate_keep = max(1, int(rotate_keep))
+        self._queue = []
+
+    def rotate(self):
+        """Shift generations at boot: log -> .1 -> .2 -> .3 (keep 3 backups)."""
+        import os
+        for i in range(self.rotate_keep - 1, 0, -1):
+            try:
+                os.rename(f"{self.path}.{i}", f"{self.path}.{i + 1}")
+            except OSError:
+                pass
+        try:
+            os.rename(self.path, self.path + ".1")
+        except OSError:
+            pass
+
+    def emit(self, ts, level, msg):
+        self._queue.append(f"{ts} [{level}] {msg}")
+        while len(self._queue) > self.boot_buffer_lines:
+            self._queue.pop(0)
+
+    def flush(self):
+        """Append queued lines to the file. Explicit close per the runbook —
+        MicroPython does not refcount-flush file objects."""
+        if not self._queue:
+            return
+        f = open(self.path, "a")
+        try:
+            while self._queue:
+                f.write(self._queue.pop(0) + "\n")
+        finally:
+            f.close()
 
 
 class Logger:
@@ -299,11 +370,41 @@ class Logger:
                 self._handlers.remove(existing_syslog)
             self.add_handler(SyslogHandler(**new_params))
 
+        # File handler: boot-window + crash capture with generation rotation
+        file_cfg = logging_cfg.get("file", {})
+        want_file = bool(file_cfg.get("enabled", False)) and bool(file_cfg.get("path"))
+        existing_file = next(
+            (h for h in self._handlers if isinstance(h, FileHandler)), None
+        )
+        if want_file and existing_file is None:
+            fh = FileHandler(
+                file_cfg.get("path", "jukeplayer.log"),
+                boot_buffer_lines=file_cfg.get("boot_buffer_lines", 200),
+                rotate_keep=file_cfg.get("rotate_keep", 3),
+            )
+            fh.rotate()   # shift previous generations at boot
+            fh.flush()    # start a fresh current file
+            self.add_handler(fh)
+        elif not want_file and existing_file is not None:
+            self._handlers.remove(existing_file)
+
     def mark_syslog_online(self):
-        """Tell all syslog handlers that the network is up."""
+        """Tell all syslog handlers that the network is up, and write the
+        buffered boot window to the log file (flash persists through freezes
+        and resets — the syslog could not flush it offline)."""
         for handler in self._handlers:
             if isinstance(handler, SyslogHandler):
                 handler.mark_online()
+            elif isinstance(handler, FileHandler):
+                handler.flush()
+
+    def flush_now(self):
+        """Synchronously flush every handler's buffered output (crash path)."""
+        for handler in self._handlers:
+            if isinstance(handler, SyslogHandler):
+                handler.flush_now()
+            elif isinstance(handler, FileHandler):
+                handler.flush()
 
     async def flush_syslog(self):
         """Flush any queued syslog lines. Call from an async loop."""

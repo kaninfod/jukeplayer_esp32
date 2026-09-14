@@ -58,6 +58,10 @@ def start_app():
         for crash_line in buf.getvalue().split("\n"):
             if crash_line:
                 log.error(crash_line)
+        # Flush the buffered crash dump to the log file AND the syslog server
+        # before the reset — the telemetry flush is dead after a crash, so
+        # without this the traceback never leaves the device
+        log.flush_now()
         crashes = _bump_crash_counter()
         if crashes >= MAX_CRASHES:
             log.error(

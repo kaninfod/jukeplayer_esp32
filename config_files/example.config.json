@@ -33,7 +33,13 @@
 			"facility": "local0",
 			"hostname": "jukeplayer",
 			"tag": "jukeplayer",
-			"boot_buffer_lines": 50
+			"boot_buffer_lines": 200
+		},
+		"file": {
+			"enabled": true,
+			"path": "jukeplayer.log",
+			"boot_buffer_lines": 200,
+			"rotate_keep": 3
 		}
 	},
 	"mqtt": {

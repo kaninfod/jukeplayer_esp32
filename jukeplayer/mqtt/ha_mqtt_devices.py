@@ -215,6 +215,7 @@ class HAMQTTService:
                         ping_timer = 0
                         try:
                             # Send a lightweight MQTT keep-alive ping packet
+                            self.logger.debug("[MQTT] keep-alive ping")
                             self.mqtt_client.ping()
                         except Exception as e:
                             self.logger.error(f"[MQTT] Keep-alive ping failed: {e}")

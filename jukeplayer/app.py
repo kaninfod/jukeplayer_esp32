@@ -117,6 +117,7 @@ class JukeBoxApp:
         # Start WS first, then stagger MQTT to reduce boot-time allocation spikes.
         ws_task = asyncio.create_task(self._websocket_loop())
         telemetry_task = asyncio.create_task(self._telemetry_loop())
+        log.info("[RUN] tasks started: ws + telemetry")
 
         if self.mqtt_service.enabled:
             self.logger.info(

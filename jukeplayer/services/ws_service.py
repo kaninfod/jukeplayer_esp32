@@ -14,6 +14,7 @@ class WSService:
             msg_type = msg.get("type")
             # `or {}` so an explicit "payload": null can't crash handlers below
             payload = msg.get("payload") or {}
+            self.app.logger.debug(f"[WS] recv: {msg_type}")
 
             handler_name = f"handle_{msg_type}"
             handler = getattr(self, handler_name, None) #self.handlers.get(msg_type)
