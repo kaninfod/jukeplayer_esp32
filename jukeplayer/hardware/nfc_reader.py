@@ -36,7 +36,7 @@ class NFCReader:
         self.spi_init = spi_init
         
         if dummy_mode:
-            print(f"LOG: NFC reader initialized in DUMMY MODE (no hardware reads)")
+            log.info("[NFC] initialized in DUMMY mode (no hardware reads)")
         else:
             if self.spi_init:
                 self.spi_init(self.spi)
@@ -48,6 +48,10 @@ class NFCReader:
             log.info(f"[NFC-INIT] rc522 version reg 0x37 = 0x{ver:02x} (expect 0x91/0x92)")
             if ver not in (0x91, 0x92):
                 log.error(f"[NFC-INIT] rc522 version reg 0x37 = 0x{ver:02x} — chip not responding")
+            # Field OFF between reads: the RC522 antenna draws ~100-150 mA
+            # continuously otherwise, stealing headroom from WiFi-TX bursts on
+            # the shared 5 V rail (2026-09-15 brownout investigation).
+            self.rdr.antenna_on(False)
         
         self.default_key = [0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF]
         self.timeout_ms = timeout_ms
@@ -77,6 +81,8 @@ class NFCReader:
             return None  # Dummy mode: always return None
         
         self.select_chip()
+        # Field on only for the duration of the read
+        self.rdr.antenna_on(True)
         start_time = time.ticks_ms()
         
         try:
@@ -91,7 +97,7 @@ class NFCReader:
             try:
                 (stat, tag_type) = self.rdr.request(self.rdr.REQIDL)
             except Exception as e:
-                log.error(f"LOG: ❌ NFC request error (timeout): {e}")
+                log.error(f"[NFC] request error: {e}")
                 return None
             
             if stat != self.rdr.OK:
@@ -102,14 +108,14 @@ class NFCReader:
             # Check timeout after each operation
             elapsed = time.ticks_diff(time.ticks_ms(), start_time)
             if elapsed > self.timeout_ms:
-                log.info(f"LOG: ❌ NFC read timeout at anticoll check")
+                log.warn(f"[NFC] read timeout at anticoll check")
                 return None
             
             # Card detected, proceed with full read
             try:
                 (stat, raw_uid) = self.rdr.anticoll()
             except Exception as e:
-                log.error(f"LOG: ❌ NFC anticoll error: {e}")
+                log.error(f"[NFC] anticoll error: {e}")
                 return None
             
             if stat != self.rdr.OK:
@@ -117,44 +123,44 @@ class NFCReader:
             
             elapsed = time.ticks_diff(time.ticks_ms(), start_time)
             if elapsed > self.timeout_ms:
-                log.info(f"LOG: ❌ NFC read timeout at select_tag")
+                log.warn(f"[NFC] read timeout at select_tag")
                 return None
             
             try:
                 if self.rdr.select_tag(raw_uid) != self.rdr.OK:
                     return None
             except Exception as e:
-                log.error(f"LOG: ❌ NFC select_tag error: {e}")
+                log.error(f"[NFC] select_tag error: {e}")
                 return None
             
-            log.info(f"LOG: ✅ UID detected: {[hex(x) for x in raw_uid]}")
+            log.info(f"[NFC] ✅ UID detected: {[hex(x) for x in raw_uid]}")
             
             elapsed = time.ticks_diff(time.ticks_ms(), start_time)
             if elapsed > self.timeout_ms:
-                log.info(f"LOG: ❌ NFC read timeout at auth")
+                log.warn(f"[NFC] read timeout at auth")
                 return None
             
             # Authenticate with default Mifare Classic key
             try:
                 auth_stat = self.rdr.auth(self.rdr.AUTHENT1A, block, self.default_key, raw_uid)
             except Exception as e:
-                log.error(f"LOG: ❌ NFC auth error: {e}")
+                log.error(f"[NFC] auth error: {e}")
                 return None
             
             if auth_stat != self.rdr.OK:
-                log.info(f"LOG: ❌ Auth failed with status {auth_stat}")
+                log.warn(f"[NFC] auth failed with status {auth_stat}")
                 return None
             
             elapsed = time.ticks_diff(time.ticks_ms(), start_time)
             if elapsed > self.timeout_ms:
-                log.info(f"LOG: ❌ NFC read timeout at block read")
+                log.warn(f"[NFC] read timeout at block read")
                 return None
             
             # Read the block
             try:
                 raw_data = self.rdr.read(block)
             except Exception as e:
-                log.error(f"LOG: ❌ NFC read error: {e}")
+                log.error(f"[NFC] read error: {e}")
                 raw_data = None
             finally:
                 try:
@@ -165,11 +171,11 @@ class NFCReader:
             if not raw_data:
                 return None
             
-            log.info(f"LOG: ✅ Raw Bytes from Block {block}: {raw_data}")
+            log.debug(f"[NFC] raw block {block}: {raw_data}")
             
             # Parse as ASCII string
             album_id = "".join([chr(x) for x in raw_data if 32 <= x <= 126]).strip()
-            log.info(f"LOG: ✅ Parsed Album ID: [{album_id}]")
+            log.info(f"[NFC] ✅ parsed album ID: [{album_id}]")
             
             if album_id:
                 self.last_successful_read = time.ticks_ms()
@@ -177,6 +183,11 @@ class NFCReader:
             return album_id if album_id else None
             
         finally:
+            # Field off; the register op runs while the chip is still selected
+            try:
+                self.rdr.antenna_on(False)
+            except Exception:
+                pass
             self.deselect_chip()
     
     async def write_data(self, album_id, block=4, timeout_ms=None):
@@ -204,24 +215,26 @@ class NFCReader:
             timeout_ms = self.timeout_ms
 
         self.select_chip()
+        # Field on: the card must see the RF field while we wait for it
+        self.rdr.antenna_on(True)
         start_time = time.ticks_ms()
 
         try:
-            log.info(f"LOG: NFC write starting to block {block}")
-            log.info(f"LOG: NFC write timeout: {timeout_ms}ms - waiting for card...")
+            log.info(f"[NFC] write starting, block {block}")
+            log.info(f"[NFC] write timeout {timeout_ms}ms — waiting for card")
 
             # Poll for card presence repeatedly until timeout
             while True:
                 elapsed = time.ticks_diff(time.ticks_ms(), start_time)
                 if elapsed > timeout_ms:
-                    log.info(f"LOG: NFC write timeout after {elapsed}ms - no card detected")
+                    log.warn(f"[NFC] write timeout after {elapsed}ms — no card detected")
                     return {"status": "timeout", "uid": None, "error_message": f"No card detected within {timeout_ms}ms"}
 
                 # Check for card presence
                 try:
                     (stat, tag_type) = self.rdr.request(self.rdr.REQIDL)
                     if stat == self.rdr.OK:
-                        log.info(f"LOG: Card detected after {elapsed}ms - proceeding with write")
+                        log.debug(f"[NFC] card detected after {elapsed}ms — proceeding with write")
                         break
                 except Exception as e:
                     # No card yet, keep polling
@@ -241,7 +254,7 @@ class NFCReader:
             try:
                 (stat, raw_uid) = self.rdr.anticoll()
             except Exception as e:
-                log.error(f"LOG: NFC anticoll error: {e}")
+                log.error(f"[NFC] anticoll error: {e}")
                 return {"status": "error", "error_message": f"Card detection failed: {e}"}
             
             if stat != self.rdr.OK:
@@ -249,7 +262,7 @@ class NFCReader:
             
             # Convert UID to hex string
             uid_hex = "0x" + "".join(f"{b:02x}" for b in raw_uid)
-            log.info(f"LOG: UID detected: {uid_hex}")
+            log.info(f"[NFC] ✅ UID detected: {uid_hex}")
             
             # Check timeout
             elapsed = time.ticks_diff(time.ticks_ms(), start_time)
@@ -261,7 +274,7 @@ class NFCReader:
                 if self.rdr.select_tag(raw_uid) != self.rdr.OK:
                     return {"status": "error", "uid": uid_hex, "error_message": "Failed to select card"}
             except Exception as e:
-                log.error(f"LOG: NFC select_tag error: {e}")
+                log.error(f"[NFC] select_tag error: {e}")
                 return {"status": "error", "uid": uid_hex, "error_message": f"Card selection failed: {e}"}
             
             # Check timeout
@@ -273,7 +286,7 @@ class NFCReader:
             try:
                 auth_stat = self.rdr.auth(self.rdr.AUTHENT1A, block, self.default_key, raw_uid)
             except Exception as e:
-                log.error(f"LOG: NFC auth error: {e}")
+                log.error(f"[NFC] auth error: {e}")
                 return {"status": "error", "uid": uid_hex, "error_message": f"Authentication failed: {e}"}
             
             if auth_stat != self.rdr.OK:
@@ -289,13 +302,13 @@ class NFCReader:
             while len(data) < 16:
                 data.append(ord(' '))
             
-            log.info(f"LOG: Writing to block {block}: {album_id}")
+            log.info(f"[NFC] writing block {block}: {album_id}")
             
             # Write the block
             try:
                 write_stat = self.rdr.write(block, data)
             except Exception as e:
-                log.error(f"LOG: NFC write error: {e}")
+                log.error(f"[NFC] write error: {e}")
                 write_stat = self.rdr.ERR
             finally:
                 try:
@@ -306,8 +319,12 @@ class NFCReader:
             if write_stat != self.rdr.OK:
                 return {"status": "error", "uid": uid_hex, "error_message": f"Write failed (status {write_stat})"}
             
-            log.info(f"LOG: ✅ Write successful: {album_id}")
+            log.info(f"[NFC] ✅ write successful: {album_id}")
             return {"status": "success", "uid": uid_hex}
             
         finally:
+            try:
+                self.rdr.antenna_on(False)
+            except Exception:
+                pass
             self.deselect_chip()

@@ -1,4 +1,5 @@
 from jukeplayer.core.state_constants import *
+from jukeplayer.core.logger import log
 class AppState:
     def __init__(self, initial_state=None):
         
@@ -41,7 +42,7 @@ class AppState:
         changed = {}
         for key, value in updates.items():
             if key not in self._state:
-                print(f"[AppState] Ignoring unknown key: {key}")
+                log.debug(f"[APPSTATE] ignoring unknown key: {key}")
                 continue
             old = self._state.get(key, None)
             if old != value:
@@ -53,7 +54,7 @@ class AppState:
                 try:
                     cb(state=changed)
                 except Exception as e:
-                    print(f"Error in state subscriber {cb.__name__}: {e}")
+                    log.error(f"[APPSTATE] error in state subscriber {cb.__name__}: {e}")
 
     def get(self, key, default=None):
         return self._state.get(key, default)

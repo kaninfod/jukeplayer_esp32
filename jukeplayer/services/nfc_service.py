@@ -10,15 +10,15 @@ class NFCService:
 
         try:
             if self.app.nfc is None:
-                self.app.logger.info(f"NFC reader not available")
+                self.app.logger.warn(f"[NFC] reader not available")
                 return
             
-            self.app.logger.info(f"Microswitch pressed")
+            self.app.logger.info(f"[MS] microswitch pressed")
             
             # Check if we're in NFC encoding mode
             nfc_encoding_album_id = self.app.state.get(NFC_ENCODING_ALBUM_ID)
             nfc_write_state  = self.app.state.get(NFC_WRITE_STATE)
-            self.app.logger.info(f" write_nfc_data called with album_id: {nfc_encoding_album_id} and write_state: {nfc_write_state}")
+            self.app.logger.debug(f"[MS] write_nfc_data called — album_id: {nfc_encoding_album_id}, write_state: {nfc_write_state}")
             if nfc_write_state:
                 # ENCODING MODE: Write the album ID to the card
                 response = {
@@ -36,13 +36,13 @@ class NFCService:
                 self.app.display.show_message("Reading NFC card...", duration=5)
                 await self.handle_read_nfc()        
         except Exception as e:
-            self.app.logger.info(f"Error handling microswitch press: {e}")
+            self.app.logger.error(f"[MS] error handling microswitch press: {e}")
 
     async def handle_card_scanned(self, album_id):
         """Handle NFC card scan with album ID."""
         import gc, json
 
-        self.app.logger.info(f"Card scanned with album ID: {album_id}")
+        self.app.logger.info(f"[PLAY] card scanned — album ID: {album_id}")
         
         gc.collect()  # Free memory before WS call
         msg = {
@@ -54,9 +54,9 @@ class NFCService:
         try:
             await self.app.ws.send(json.dumps(msg))
             self.app.state.set({LAST_NFC_SCAN: f"Album ID: {album_id}"})
-            self.app.logger.info(f"Requested to play album_id={album_id}")
+            self.app.logger.info(f"[PLAY] requested to play album_id={album_id}")
         except Exception as e:
-            self.app.logger.info(f"Failed to send play album command: {e}")
+            self.app.logger.error(f"[PLAY] failed to send play album command: {e}")
         gc.collect()  # Free memory after WS call
 
 
@@ -72,17 +72,17 @@ class NFCService:
         
         if self.app.nfc is None:
             if context:
-                self.app.logger.info(f"[{context}] NFC reader not available - skipping write")
+                self.app.logger.warn(f"[{context}] NFC reader not available — skipping write")
             return
         
         try:
             if context:
-                self.app.logger.info(f"[{context}] Starting write_data for album_id: {album_id}")
+                self.app.logger.info(f"[{context}] starting write_data for album_id: {album_id}")
             
             result = await self.app.nfc.write_data(album_id, timeout_ms=30000)
             
             if context:
-                self.app.logger.info(f"[{context}] Result - status: {result.get('status')}, uid: {result.get('uid')}")
+                self.app.logger.info(f"[{context}] result — status: {result.get('status')}, uid: {result.get('uid')}")
             
             # Send completion message back to backend
             response = {
@@ -92,10 +92,10 @@ class NFCService:
             await self.app.ws.send(json.dumps(response))
             
             if context:
-                self.app.logger.info(f"[{context}] Sent encoding result to backend")
+                self.app.logger.info(f"[{context}] encoding result sent to backend")
         except Exception as e:
             if context:
-                self.app.logger.info(f"[{context}] Error: {e}")
+                self.app.logger.error(f"[{context}] error: {e}")
             
             response = {
                 "type": "nfc_encoding_complete",
@@ -109,7 +109,7 @@ class NFCService:
                 await self.app.ws.send(json.dumps(response))
             except Exception as send_error:
                 if context:
-                    self.app.logger.info(f"[{context}] Failed to send error: {send_error}")
+                    self.app.logger.error(f"[{context}] failed to send error: {send_error}")
         finally:
             # Clear encoding flag
             if self.app.state.get(NFC_WRITE_STATE) == True:
@@ -123,7 +123,7 @@ class NFCService:
         import asyncio
 
         if self.app.nfc is None:
-            self.app.logger.info(f"[MS-READ] NFC reader not available")
+            self.app.logger.warn(f"[MS-READ] NFC reader not available")
             return
         
         try:
@@ -135,4 +135,4 @@ class NFCService:
             else:
                 self.app.logger.info(f"[MS-READ] No card detected or read failed")
         except Exception as e:
-            self.app.logger.info(f"[MS-READ] Error: {e}")
+            self.app.logger.error(f"[MS-READ] error: {e}")

@@ -9,6 +9,8 @@ try:
 except ImportError:
     ssl = None
 
+from jukeplayer.core.logger import log
+
 # Opcodes
 OP_CONT = const(0x0)
 OP_TEXT = const(0x1)
@@ -51,7 +53,7 @@ class AsyncWebsocketClient:
 
     async def close(self, code=None):
         if code is not None:
-            print("Connection is closed. Code: ", code)
+            log.info(f"[WS] connection closed, code: {code}")
         return await self.open(False)
 
     def urlparse(self, uri):
@@ -155,7 +157,7 @@ class AsyncWebsocketClient:
         try:
             data = await self.reader.readexactly(length)
         except MemoryError:
-            print(f"MemoryError: Payload size {length} too large. Draining stream bypass.")
+            log.error(f"[WS] payload too large ({length} B) — draining stream bypass")
             remaining = length
             while remaining > 0:
                 chunk = min(remaining, 1024)

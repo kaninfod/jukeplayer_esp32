@@ -25,7 +25,7 @@ class HardwareService:
             await self._encoder_flag.wait()
             try:
                 current_volume = self.app.encoder.value()
-                self.app.logger.info(f"Encoder turned - current volume: {current_volume}%")
+                self.app.logger.debug(f"[ENC] turned — volume {current_volume}%")
                 # Manage the 300ms debounce API timer
                 if self.app.debounce_task and not self.app.debounce_task.done():
                     self.app.debounce_task.cancel()
@@ -33,13 +33,13 @@ class HardwareService:
                     self.set_volume_debounce_worker(current_volume)
                 )
             except Exception as e:
-                self.app.logger.info(f"Encoder handling error: {e}")
+                self.app.logger.error(f"[ENC] handling error: {e}")
 
     async def handle_volume_change(self, volume):
         """Handle potentiometer volume change - send via WebSocket immediately."""
         import gc, json
         try:
-            self.app.logger.info(f"Volume change - {volume}%")
+            self.app.logger.info(f"[ENC] volume change — {volume}%")
             gc.collect()  # Free memory before sending
             
             # Send volume command via WebSocket
@@ -50,10 +50,10 @@ class HardwareService:
                 }
             }
             await self.app.ws.send(json.dumps(msg))
-            self.app.logger.info(f"Volume {volume} sent to backend")
+            self.app.logger.info(f"[ENC] volume {volume} sent to backend")
             gc.collect()  # Free memory after sending
         except Exception as e:
-            self.app.logger.info(f"Volume control error: {e}")
+            self.app.logger.error(f"[ENC] volume control error: {e}")
 
     async def handle_button_press(self, button_name, press_type="single"):
         """Route button events to the handler."""
@@ -71,7 +71,7 @@ class HardwareService:
             # Expected when a new knob turn supersedes the previous pending update.
             return
         except Exception as e:
-            self.app.logger.info(f"Volume debounce worker error: {e}")
+            self.app.logger.error(f"[ENC] volume debounce worker error: {e}")
 
     def make_callback(self,button_name, press_type):
         import asyncio
@@ -79,11 +79,11 @@ class HardwareService:
 
     def assign_button_handlers(self):
         if isinstance(self.app.pushbuttons, list):
-            self.app.logger.info("Wiring up physical pushbutton callbacks...")
+            self.app.logger.debug("[BTN] wiring physical pushbutton callbacks...")
 
             for pb in self.app.pushbuttons:
                 pb.on_press = self.make_callback
-                self.app.logger.info(f"Button {pb.action_name} wired up")
+                self.app.logger.debug(f"[BTN] {pb.action_name} wired up")
         else:
-            self.app.logger.info("Using dummy input controller; skipping physical callback wiring.")
+            self.app.logger.info("[BTN] dummy input controller — skipping callback wiring")
 

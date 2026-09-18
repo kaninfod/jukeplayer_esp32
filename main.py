@@ -24,12 +24,18 @@ def _bump_crash_counter():
         except Exception:
             raw = b""
         count, last = 0, 0
-        if raw and len(raw) >= 8:
+        marker = (0, 0)
+        if raw and len(raw) >= 16:
+            count, last, magic, alive_ts = struct.unpack("<IIII", raw[:16])
+            marker = (magic, alive_ts)
+        elif raw and len(raw) >= 8:
             count, last = struct.unpack("<II", raw[:8])
         now = int(time.time())
         count = count + 1 if (now - last) < CRASH_WINDOW_S else 1
         try:
-            rtc.memory(struct.pack("<II", count, now))
+            # Full 16-byte layout (see boot.py _boot_forensics); the heartbeat
+            # marker fields are preserved so the next boot reports truthfully.
+            rtc.memory(struct.pack("<IIII", count, now, marker[0], marker[1]))
         except Exception:
             pass
         return count
@@ -40,24 +46,24 @@ def _bump_crash_counter():
 def start_app():
     gc.collect()
     try:
-        log.info("Starting Jukebox app...")
+        log.info("[BOOT] starting Jukebox app...")
         from jukeplayer.app import main
         import asyncio
         asyncio.run(main())
     except KeyboardInterrupt:
         # deliberate interrupt (Thonny / REPL sessions): stay down
-        log.info("App stopped by KeyboardInterrupt")
+        log.info("[BOOT] app stopped by KeyboardInterrupt")
     except Exception as e:
         # Route the traceback through the logger (syslog) instead of printing
         # to the CDC console: sys.print_exception writes to stdout, which can
         # BLOCK the app when no USB CDC reader is attached (micropython#18000)
         import io
-        log.error("Application crashed:")
+        log.error("[CRASH] application crashed:")
         buf = io.StringIO()
         sys.print_exception(e, buf)
         for crash_line in buf.getvalue().split("\n"):
             if crash_line:
-                log.error(crash_line)
+                log.error(f"[CRASH] {crash_line}")
         # Flush the buffered crash dump to the log file AND the syslog server
         # before the reset — the telemetry flush is dead after a crash, so
         # without this the traceback never leaves the device
@@ -69,7 +75,7 @@ def start_app():
                 "- staying down; power-cycle or long-press stop to recover"
             )
             return
-        log.info(f"Auto-restarting in {REBOOT_GRACE_S}s (crash #{crashes})")
+        log.warn(f"[CRASH] auto-restarting in {REBOOT_GRACE_S}s (crash #{crashes})")
         time.sleep(REBOOT_GRACE_S)
         machine.reset()
 

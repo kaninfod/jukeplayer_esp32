@@ -21,19 +21,19 @@ def connect(ssid, password, timeout_sec=30):
             pass
             
     if wlan.isconnected():
-        log.info(f"Already connected to WiFi. IP: {wlan.ifconfig()[0]}")
+        log.info(f"[WIFI] already connected, IP: {wlan.ifconfig()[0]}")
         return wlan.ifconfig()[0]
         
-    log.info(f"Connecting to WiFi: {ssid}...")
+    log.info(f"[WIFI] connecting to '{ssid}'...")
     wlan.connect(ssid, password)
     
     start_time = time.time()
     while not wlan.isconnected():
         if time.time() - start_time > timeout_sec:
-            log.error(f"WiFi connection timeout after {timeout_sec}s")
+            log.error(f"[WIFI] connection timeout after {timeout_sec}s")
             return None
         time.sleep_ms(100)
         
     ip = wlan.ifconfig()[0]
-    log.info(f"WiFi Connected! IP: {ip}")
+    log.info(f"[WIFI] connected, IP: {ip}")
     return ip

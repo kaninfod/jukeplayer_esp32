@@ -1,3 +1,4 @@
+import asyncio
 import time
 
 try:
@@ -89,7 +90,7 @@ class SyslogHandler:
 
     def __init__(self, host, port=514, facility="local0", hostname="jukeplayer",
                  tag="jukeplayer", boot_buffer_lines=50, max_queue_lines=200,
-                 flush_batch_size=50, flush_per_emit=True):
+                 flush_batch_size=50):
         self.host = host
         self.port = int(port)
         self.facility = self._facility_code(facility)
@@ -98,13 +99,17 @@ class SyslogHandler:
         self.boot_buffer_lines = max(0, int(boot_buffer_lines))
         self.max_queue_lines = max(self.boot_buffer_lines, int(max_queue_lines))
         self.flush_batch_size = max(1, int(flush_batch_size))
-        self.flush_per_emit = bool(flush_per_emit)
 
         self._online = False
         self._queue = []
         self._sock = None
         self._failed_count = 0
         self._max_consecutive_failures = 10
+        # Degraded state: the syslog server became unreachable and the send
+        # backoff tripped. Surfaced once as a WARN by Logger.flush_syslog()
+        # (the console/file handlers still deliver at WARN level).
+        self.degraded = False
+        self.degraded_warned = False
 
     def _facility_code(self, facility):
         if isinstance(facility, int):
@@ -121,10 +126,6 @@ class SyslogHandler:
         cap = self.max_queue_lines if self._online else self.boot_buffer_lines
         while len(self._queue) > cap:
             self._queue.pop(0)
-        if self.flush_per_emit and self._online:
-            # per-emit flush: a UDP sendto costs microseconds — the server then
-            # has every line even if the app freezes right after this one
-            self.flush_now()
 
     def mark_online(self):
         """Start flushing queued lines to the syslog server."""
@@ -153,6 +154,7 @@ class SyslogHandler:
             try:
                 self._sock.sendto(line.encode("utf-8"), (self.host, self.port))
                 self._failed_count = 0
+                self.degraded = False
             except Exception:
                 # Put the line back and stop — the caller decides what's next.
                 self._queue.insert(0, line)
@@ -171,6 +173,7 @@ class SyslogHandler:
         # transient network/server problem does not spam socket errors.
         if self._failed_count >= self._max_consecutive_failures:
             self._failed_count = 0
+            self.degraded = True
             try:
                 self._sock.close()
             except Exception:
@@ -184,7 +187,12 @@ class SyslogHandler:
             try:
                 self._sock.sendto(line.encode("utf-8"), (self.host, self.port))
                 self._failed_count = 0
+                self.degraded = False
                 sent += 1
+                # Pace the radio: each UDP packet is a TX current burst. A short
+                # gap keeps even a 50-line boot replay off the power rails
+                # (2026-09-15 brownout investigation — per-emit flush removed).
+                await asyncio.sleep_ms(15)
             except Exception:
                 # Put the line back and stop trying this cycle.
                 self._queue.insert(0, line)
@@ -249,6 +257,11 @@ class Logger:
         self._level = _normalise_level(level)
         self._handlers = []
         self._time_synced = False
+        # Wall-clock offset for timestamp formatting: the RTC holds UTC
+        # (ntptime) and MicroPython has no timezone database, so the local
+        # offset is applied explicitly (7200 = UTC+2, CEST). Configurable via
+        # logging.utc_offset_s.
+        self._utc_offset_s = 7200
 
     def add_handler(self, handler):
         self._handlers.append(handler)
@@ -258,15 +271,22 @@ class Logger:
 
     def sync_time(self):
         if ntptime is None:
-            self.warn("ntptime not available; time will remain unsynced")
+            self.warn("[NTP] ntptime not available; time will remain unsynced")
             return False
         try:
+            # Numeric NTP host + bounded socket timeout: the library's
+            # getaddrinfo("pool.ntp.org") is a BLOCKING DNS lookup with no
+            # timeout — it hangs when the DNS path isn't ready right after a
+            # watchdog reset, starving the scheduler until the WDT fires
+            # (Klangmeister boot loop, 2026-09-15).
+            ntptime.host = "162.159.200.1"  # time.cloudflare.com — numeric, no DNS
+            ntptime.timeout = 2
             ntptime.settime()
             self._time_synced = True
-            self.info("NTP time synced successfully (UTC).")
+            self.info("[NTP] time synced successfully (UTC)")
             return True
         except Exception as e:
-            self.error(f"NTP sync failed: {e}")
+            self.error(f"[NTP] sync failed: {e}")
             return False
 
     def _console_timestamp(self):
@@ -274,7 +294,7 @@ class Logger:
             if hasattr(time, "ticks_ms"):
                 return f"{time.ticks_ms()}ms"
             return "0ms"
-        t = time.localtime()
+        t = time.localtime(time.time() + self._utc_offset_s)
         return f"{t[0]:04d}-{t[1]:02d}-{t[2]:02d} {t[3]:02d}:{t[4]:02d}:{t[5]:02d}"
 
     def _syslog_timestamp(self):
@@ -282,7 +302,7 @@ class Logger:
             if hasattr(time, "ticks_ms"):
                 return f"{time.ticks_ms()}ms"
             return "0ms"
-        t = time.localtime()
+        t = time.localtime(time.time() + self._utc_offset_s)
         return f"{_MONTHS[t[1] - 1]} {t[2]:2d} {t[3]:02d}:{t[4]:02d}:{t[5]:02d}"
 
     def _should_log(self, level):
@@ -326,6 +346,7 @@ class Logger:
 
         logging_cfg = config.get("logging", {})
         self.set_level(logging_cfg.get("level", "INFO"))
+        self._utc_offset_s = int(logging_cfg.get("utc_offset_s", 7200))
 
         # Console handler
         console_cfg = logging_cfg.get("console", {})
@@ -410,6 +431,11 @@ class Logger:
         """Flush any queued syslog lines. Call from an async loop."""
         for handler in self._handlers:
             if isinstance(handler, SyslogHandler):
+                if handler.degraded and not handler.degraded_warned:
+                    handler.degraded_warned = True
+                    self.warn("[SYSLOG] server unreachable — lines queued, backing off")
+                elif not handler.degraded and handler.degraded_warned:
+                    handler.degraded_warned = False
                 await handler.flush()
 
 

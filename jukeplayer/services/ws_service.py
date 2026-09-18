@@ -24,10 +24,10 @@ class WSService:
             if handler:
                 await handler(payload)
             else:
-                self.app.logger.info(f"Unknown message type: {msg_type}")
+                self.app.logger.warn(f"[WS] unknown message type: {msg_type}")
 
         except Exception as e:
-            self.app.logger.error(f"Error in message_handler: {e}")
+            self.app.logger.error(f"[WS] error in message_handler: {e}")
         finally:
             msg = None
             gc.collect() 
@@ -46,7 +46,7 @@ class WSService:
                     WS_CONNECTED: True,
                 }
             )
-            self.app.logger.info(f"✅ Client ID updated: {self.app.client_id}")
+            self.app.logger.info(f"[WS] ✅ client ID updated: {self.app.client_id}")
 
     async def handle_current_track(self, payload):
 
@@ -67,10 +67,9 @@ class WSService:
         # Apply initial volume if present (volume is read defensively above;
         # never index payload directly here — a schema change on the server
         # must not discard the whole track update)
-        self.app.logger.info(f"Initial volume: {volume}")
         self.app.encoder.set(value=volume)
         
-        self.app.logger.info(f"Track update - {artist} / {title} / {year} / {track_number} / {playlist_count} / {repeat_status} / {muted} (status: {status}, volume: {volume})")
+        self.app.logger.info(f"[PLAY] track update — Artist: {artist} / Title: {title} / Year: {year} / Track Number: {track_number} / Playlist Count: {playlist_count} / Repeat Status: {repeat_status} / Muted: {muted} / Status: {status} / Volume: {volume}") 
         
             
         if status == "playing":
@@ -98,7 +97,7 @@ class WSService:
         self.app.state.set(update)
 
     async def handle_volume_changed(self, payload):
-        self.app.logger.info(f"Volume update received: {payload}")
+        self.app.logger.debug(f"[PLAY] volume update received: {payload}")
         if isinstance(payload, dict):
             volume = payload.get("volume", payload.get("value", 0))
             mute_status = payload.get("muted")
@@ -106,7 +105,7 @@ class WSService:
             volume = payload
             mute_status = None
         
-        self.app.logger.info(f"Volume update - {volume}")
+        self.app.logger.info(f"[PLAY] volume update — {volume}")
         
         self.app.state.set({VOLUME: volume})
         if mute_status is not None:
@@ -118,12 +117,12 @@ class WSService:
     async def handle_toggle_repeat_changed(self, payload):
         repeat_status = payload.get('mode')
         self.app.state.set({REPEAT_STATUS: repeat_status})
-        self.app.logger.info(f"Repeat status update - {repeat_status} / {payload}")
+        self.app.logger.info(f"[PLAY] repeat update — {repeat_status} / {payload}")
 
     async def handle_volume_muted(self, payload):
         muted = payload.get("muted") if isinstance(payload, dict) else payload
         self.app.state.set({MUTED: bool(muted)})
-        self.app.logger.info(f"Mute status update - {self.app.state.get(MUTED)}")
+        self.app.logger.info(f"[PLAY] mute update — {self.app.state.get(MUTED)}")
         
         # await self.handle_mute_changed(payload)
 
@@ -133,7 +132,7 @@ class WSService:
     async def handle_nfc_encode_start(self, payload):
         # Receive NFC encoding command from backend
         album_id = payload.get("album_id")
-        self.app.logger.info(f"NFC encode ready to write album_id: {album_id} - waiting for microswitch press to start encoding")
+        self.app.logger.info(f"[NFC] encode ready, album_id: {album_id} — waiting for microswitch press")
         self.app.state.set({NFC_ENCODING_ALBUM_ID: album_id})
         self.app.state.set({NFC_WRITE_STATE: True})
         # now wait for the microswitch press to trigger the actual write in handle_microswitch_press, which will write to the card
@@ -144,7 +143,7 @@ class WSService:
     async def handle_device_reset(self, payload):
         """Backend-triggered reboot: log, give the log lines time to flush
         (console + buffered syslog), then hard reset the device."""
-        self.app.logger.info("[WS] device_reset received from backend - rebooting")
+        self.app.logger.info("[WS] device_reset received — rebooting")
         import asyncio
         import machine
         await asyncio.sleep(0.5)
@@ -189,22 +188,22 @@ class WSService:
                                     WS_CONNECTED: True,
                                 }
                             )
-                            self.app.logger.info(f"✅ Registration successful: {self.app.config['client']['name']} (ID: {self.app.client_id})")
+                            self.app.logger.info(f"[WS] ✅ Registration successful: {self.app.config['client']['name']} (ID: {self.app.client_id})")
                             # self.app.state.set({"network_status": "WS:OK"})
                             return
                         else:
-                            self.app.logger.info(f"❌ Registration failed: {payload.get('message')}")
+                            self.app.logger.error(f"[WS] registration failed: {payload.get('message')}")
                             return
                     else:
                         # Process other message types (e.g., current_track) during registration
                         await self.app.ws_service.message_handler(response_text)
             
-            self.app.logger.info(f"❌ Registration response timeout")
+            self.app.logger.error(f"[WS] registration response timeout")
         
         except asyncio.TimeoutError:
-            self.app.logger.info(f"❌ Registration response timeout")
+            self.app.logger.error(f"[WS] registration response timeout")
         except Exception as e:
-            self.app.logger.info(f"❌ Registration error: {e}")  
+            self.app.logger.error(f"[WS] registration error: {e}")  
 
     async def connect_websocket(self):
         """Connect to WebSocket server with retries and register client."""
@@ -218,7 +217,7 @@ class WSService:
             
             # Check WiFi first before creating sockets or doing getaddrinfo to prevent LWIP ENOMEM leaks!
             if not wlan.isconnected():
-                self.app.logger.info(f"[CONNECT] WiFi is down! Waiting before reconnect attempt...")
+                self.app.logger.warn(f"[CONNECT] WiFi is down — waiting before reconnect attempt")
                 self.app.state.set({NETWORK_STATUS: "WS:ERR", WS_CONNECTED: False})
                 await asyncio.sleep(5)
                 continue
@@ -230,7 +229,7 @@ class WSService:
 
                 free_before = gc.mem_free()
                 self.app.logger.info(f"[CONNECT] Attempting connection (attempt {attempt + 1}/{max_attempts})")
-                self.app.logger.info(f"[CONNECT] Heap before handshake: {free_before} bytes free")
+                self.app.logger.debug(f"[CONNECT] heap before handshake: {free_before} bytes free")
                 # Add timeout so handshake doesn't hang forever
                 connected = await asyncio.wait_for(self.app.ws.handshake(self.app.server_url), timeout=5)
                 if connected:
@@ -241,9 +240,9 @@ class WSService:
                     await self.register_with_backend()
                     return
             except asyncio.TimeoutError:
-                self.app.logger.info(f"[CONNECT] Attempt {attempt + 1} timed out (5s)")
+                self.app.logger.warn(f"[CONNECT] attempt {attempt + 1} timed out (5s)")
             except Exception as e:
-                self.app.logger.info(f"[CONNECT] Attempt {attempt + 1} failed: {e}")
+                self.app.logger.warn(f"[CONNECT] attempt {attempt + 1} failed: {e}")
 
             # Ensure partial sockets/streams are torn down before retry.
             try:
@@ -254,8 +253,8 @@ class WSService:
 
             self.app.ws = AsyncWebsocketClient(5)
             gc.collect()
-            self.app.logger.info(f"[CONNECT] Heap after cleanup: {gc.mem_free()} bytes free")
+            self.app.logger.debug(f"[CONNECT] heap after cleanup: {gc.mem_free()} bytes free")
             await asyncio.sleep(1)
         
-        self.app.logger.info(f"[CONNECT] Failed to connect after retries")            
+        self.app.logger.error(f"[CONNECT] failed to connect after retries")            
         self.app.state.set({NETWORK_STATUS: "WS:ERR", WS_CONNECTED: False})

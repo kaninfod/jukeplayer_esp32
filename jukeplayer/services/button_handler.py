@@ -70,15 +70,15 @@ class ButtonHandler:
         """Route event to the appropriate handler."""
         # Hardening: reject unknown buttons
         if button_name not in self.ALLOWED_BUTTONS:
-            self.app.logger.info(f"Ignored disallowed button: {button_name}")
+            self.app.logger.info(f"[BTN] ignored disallowed button: {button_name}")
             return
 
         # Hardening: reject unknown press types
         if press_type not in self.PRESS_TYPES:
-            self.app.logger.info(f"Ignored unknown press type: {press_type}")
+            self.app.logger.warn(f"[BTN] ignored unknown press type: {press_type}")
             return
 
-        self.app.logger.info(f"Button: {button_name} ({press_type})")
+        self.app.logger.info(f"[BTN] {button_name} ({press_type})")
         gc.collect()
 
         handler = self._handlers.get((button_name, press_type))
@@ -86,13 +86,13 @@ class ButtonHandler:
             handler = self._handlers.get(button_name)
 
         if handler is None:
-            self.app.logger.info(f"No handler for {button_name} ({press_type})")
+            self.app.logger.info(f"[BTN] no handler for {button_name} ({press_type})")
             return
 
         try:
             await handler()
         except Exception as e:
-            self.app.logger.info(f"Handler error for {button_name}/{press_type}: {e}")
+            self.app.logger.error(f"[BTN] handler error for {button_name}/{press_type}: {e}")
         finally:
             gc.collect()
 
@@ -103,7 +103,7 @@ class ButtonHandler:
             label = self._get_label(command)
             # Send the command immediately so the backend responds fast.
             await self.app.ws.send(json.dumps({"type": command, "payload": {}}))
-            self.app.logger.info(f"WS command sent: {command}")
+            self.app.logger.info(f"[WS] command sent: {command}")
             # Then show the overlay without waiting for the screen refresh.
             self.app.display.show_message(f"{label} pressed", duration=2)
         return _sender
@@ -112,10 +112,10 @@ class ButtonHandler:
         from jukeplayer.services.nfc_service import NFCService
         nfc_service = NFCService(self.app)
         await nfc_service.handle_microswitch_press()
-        self.app.logger.info("NFC card detected via microswitch")
+        self.app.logger.debug("[BTN] nfc card released via microswitch")
 
     async def _handle_backlight_toggle(self):
-        self.app.logger.info("Toggling backlight")
+        self.app.logger.info("[BTN] toggling backlight")
         # display.backlight is a raw machine.Pin (no .toggle() on the ESP32
         # port); the managers expose toggle_backlight() for this.
         self.app.display.toggle_backlight()
@@ -124,13 +124,13 @@ class ButtonHandler:
         await self.app.ws.send(json.dumps({"type": "toggle_repeat", "payload": {}}))
         current = bool(self.app.state.get(REPEAT_STATUS, False))
         self.app.state.set({REPEAT_STATUS: not current})
-        self.app.logger.info(f"Repeat status toggled")
+        self.app.logger.info(f"[BTN] repeat status toggled")
 
     async def _handle_volume_mute(self):
         await self.app.ws.send(json.dumps({"type": "volume_mute", "payload": {}}))
         current = bool(self.app.state.get(MUTED, False))
         self.app.state.set({MUTED: not current})
-        self.app.logger.info(f"Volume mute toggled")
+        self.app.logger.info(f"[BTN] volume mute toggled")
 
     async def _handle_stop_long(self):
         """Two-stage hardware reset: first long press arms the 'gun' (user
@@ -142,11 +142,11 @@ class ButtonHandler:
             await self._handle_hardware_reset()
         else:
             self._reboot_armed_at = now
-            self.app.logger.info("Reset armed - long-press stop again within 10s to reboot")
+            self.app.logger.info("[BTN] reset armed — long-press stop again within 10s to reboot")
             self.app.display.show_message("Reboot? press again", duration=10)
 
     async def _handle_hardware_reset(self):
         """Reset hardware components to a known state."""
-        self.app.logger.info("Resetting hardware...")
+        self.app.logger.info("[BTN] resetting hardware...")
         import machine
         machine.reset() 

@@ -19,10 +19,10 @@ def load_config():
     try:
         with open("config.json", "r") as f:
             config = json.load(f)
-        log.info(f"Config loaded - Client: {config['client']['name']}")
+        log.info(f"[CFG] loaded — client: {config['client']['name']}")
         return config
     except Exception as e:
-        log.error(f"FATAL ERROR loading config.json in main.py: {e}")
+        log.error(f"[CFG] fatal error loading config.json: {e}")
         return {}
 
 
@@ -40,7 +40,7 @@ class JukeBoxApp:
     
     def __init__(self):
         self.logger = log
-        self.logger.info("Initializing JukeBoxApp...")
+        self.logger.info("[APP] initializing JukeBoxApp...")
         #self._heap_mark("boot:start")
         
         self.config = load_config()
@@ -63,6 +63,7 @@ class JukeBoxApp:
 
         self.display = factory.get_display(app_state=self.state)
         self.display.start()
+        log.info("[RUN] display started")
 
         self.encoder = factory.get_encoder()
         # IRQ-safe bridge: the rotary IRQ only sets a ThreadSafeFlag; the
@@ -107,6 +108,7 @@ class JukeBoxApp:
         """Main application loop using async pattern."""
         import asyncio, gc
 
+        self.logger.info("[RUN] entering run loop")
         self.logger.info("Waiting 3 seconds before WebSocket connection...")
         self._heap_mark("run:before_wait")
         await asyncio.sleep(3)
@@ -119,9 +121,25 @@ class JukeBoxApp:
         telemetry_task = asyncio.create_task(self._telemetry_loop())
         log.info("[RUN] tasks started: ws + telemetry")
 
+        # Hardware watchdog, config-gated: armed only after the event loop is
+        # running (the boot's blocking WiFi/NTP phase is exempt). A total
+        # event-loop freeze — blocking C call, deadlock — now self-recovers
+        # via a WDT reset; single-task hangs are bounded by the WS guards.
+        # RTC forensics survive the WDT reset, so the next boot reports both
+        # the hang and the last heartbeat.
+        wd_cfg = self.config.get("hardware", {}).get("watchdog", {})
+        if wd_cfg.get("enabled", False):
+            import machine
+            timeout_ms = max(1000, int(wd_cfg.get("timeout_s", 8)) * 1000)
+            self._wdt = machine.WDT(timeout=timeout_ms)
+            asyncio.create_task(self._wdt_feed_loop())
+            log.debug(f"[WDT] armed, timeout {timeout_ms} ms")
+        else:
+            log.info("[WDT] disabled by config")
+
         if self.mqtt_service.enabled:
             self.logger.info(
-                f"[BOOT] Delaying MQTT start by {self.mqtt_start_delay_s}s to prioritize WS connection"
+                f"[MQTT] delaying start by {self.mqtt_start_delay_s}s to prioritize WS connection"
             )
             await asyncio.sleep(self.mqtt_start_delay_s)
             mqtt_task = asyncio.create_task(self.mqtt_service.run())
@@ -152,29 +170,52 @@ class JukeBoxApp:
                             data = None
                         await asyncio.sleep_ms(50)
                     except Exception as e:
-                        self.logger.info(f"WebSocket recv error: {e}")
+                        # Traceback to syslog: the message alone hides the frame
+                        # that raised (the __rshift__ error had no trail).
+                        import io, sys
+                        buf = io.StringIO()
+                        sys.print_exception(e, buf)
+                        for tb_line in buf.getvalue().split("\n"):
+                            if tb_line:
+                                self.logger.error(f"[WS] traceback: {tb_line}")
+                        self.logger.warn(f"[WS] recv error: {e}")
+                        self.logger.info("[WS] recv-error handling: updating state")
                         self.state.set({NETWORK_STATUS: "WS:ERR", WS_CONNECTED: False})
+                        self.logger.debug("[WS] recv-error handling: closing socket")
                         try:
                             if hasattr(self, 'ws') and self.ws:
-                                await self.ws.close()
+                                # Bounded close: a corrupted/half-dead socket can
+                                # hang close() forever, which froze the WS task
+                                # before the reconnect could run
+                                # (Klangmeister 2026-09-16).
+                                await asyncio.wait_for(self.ws.close(), timeout=3)
                             self.ws = None
-                        except Exception:
-                            pass
+                            self.logger.debug("[WS] socket closed")
+                        except Exception as close_err:
+                            self.logger.warn(f"[WS] socket close failed/timed out ({close_err!r}) — discarding client")
+                            self.ws = None
                         break
                 
                 # Connection closed, prepare to reconnect
-                self.logger.info(f"[RECONNECT] WebSocket connection lost")
+                self.logger.warn(f"[RECONNECT] WebSocket connection lost")
                 self.state.set({NETWORK_STATUS: "WS:ERR", WS_CONNECTED: False})
                 
             except KeyboardInterrupt:
                 # Allow keyboard interrupt to propagate
                 raise
             except Exception as e:
-                self.logger.info(f"WebSocket error: {e}")
+                # Traceback to syslog: same diagnostic as the recv-error path
+                import io, sys
+                buf = io.StringIO()
+                sys.print_exception(e, buf)
+                for tb_line in buf.getvalue().split("\n"):
+                    if tb_line:
+                        self.logger.error(f"[WS] traceback: {tb_line}")
+                self.logger.warn(f"[WS] error: {e}")
                 self.state.set({NETWORK_STATUS: "WS:ERR", WS_CONNECTED: False})
             
             # Exponential backoff on reconnect (2s → 4s → 8s → ... → 30s)
-            self.logger.info(f"Reconnecting in {reconnect_delay}s...")
+            self.logger.info(f"[RECONNECT] retrying in {reconnect_delay}s...")
             self.state.set({NETWORK_STATUS: "WS:ERR", WS_CONNECTED: False})
             await asyncio.sleep(reconnect_delay)
             reconnect_delay = min(reconnect_delay * 2, max_reconnect_delay)
@@ -199,6 +240,15 @@ class JukeBoxApp:
                     free_before = gc.mem_free()
                     gc.collect()
                     self._log_memory_usage((gc.mem_free() - free_before) // 1024)
+                    # Crash forensics heartbeat: alive marker in RTC memory
+                    # (survives hard resets; 16-byte layout in boot.py)
+                    try:
+                        import machine, struct
+                        raw = machine.RTC().memory()
+                        cnt, lst, _, _ = struct.unpack("<IIII", raw[:16]) if len(raw) >= 16 else (0, 0, 0, 0)
+                        machine.RTC().memory(struct.pack("<IIII", cnt, lst, 0x414C4956, int(time.time())))
+                    except Exception:
+                        pass
 
                 # Flush any queued syslog log lines
                 await logger.flush_syslog()
@@ -209,7 +259,7 @@ class JukeBoxApp:
             except KeyboardInterrupt:
                 raise
             except Exception as e:
-                logger.info(f"Telemetry loop error: {e}")
+                logger.error(f"[MEM] telemetry loop error: {e}")
                 await asyncio.sleep(1)
 
     def _log_memory_usage(self, reclaimed_kb=0):
@@ -226,8 +276,18 @@ class JukeBoxApp:
 
             self.state.set({MEMORY_USAGE: used_pct, CLIENT_ID: self.client_id or ""})
             logger.info(f"[MEM] Free: {free_kb} KB | Used: {used_pct}% ({alloc_kb} KB allocated) | GC reclaimed: {reclaimed_kb} KB")
+            if free_kb < 2000:
+                logger.warn(f"[MEM] LOW MEMORY: {free_kb} KB free — OOM risk")
         except Exception as e:
-            logger.info(f"[MEM] Error reading memory: {e}")
+            logger.error(f"[MEM] error reading memory: {e}")
+
+    async def _wdt_feed_loop(self):
+        """Feed the hardware watchdog. Total event-loop freezes longer than the
+        WDT timeout trip the reset; single-task hangs do not (this task keeps
+        yielding as long as the loop itself runs)."""
+        while True:
+            self._wdt.feed()
+            await asyncio.sleep_ms(3000)
 
 async def main():
     """Entry point for async app."""
@@ -236,6 +296,6 @@ async def main():
 
 
 if __name__ == "__main__":
-    log.info(f"Starting Jukebox app...")
+    log.info(f"[BOOT] starting Jukebox app...")
     import asyncio
     asyncio.run(main())

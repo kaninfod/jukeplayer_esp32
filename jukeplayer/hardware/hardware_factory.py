@@ -75,10 +75,10 @@ class HardwareFactory:
         tft_cfg = self.config.get("tft", {})
         if not tft_cfg.get("enabled", False):
             # Headless mode: the app runs without a display (diagnostics)
-            log.info("Display factory: TFT disabled — running headless (DummyDisplay)")
+            log.info("[TFT] disabled — running headless (DummyDisplay)")
             from jukeplayer.mocks.dummy_display import DummyDisplay
             return DummyDisplay()
-        log.info("Display factory: selecting TFT display")
+        log.info("[TFT] selecting driver")
         return self.get_tft_display(app_state=app_state)
 
     def get_tft_display(self, app_state):
@@ -104,7 +104,7 @@ class HardwareFactory:
         try:
             log.info(f"[TFT] init stage 1/5: preparing pins for driver '{driver}'")
 
-            log.info("[TFT] pin init: cs")
+            log.debug("[TFT] pin init: cs")
             p_cs = Pin(cfg.get("cs"), Pin.OUT)
             p_cs.value(1)
 
@@ -115,14 +115,14 @@ class HardwareFactory:
                 if nfc_cs is not None:
                     Pin(nfc_cs, Pin.OUT).value(1)
 
-            log.info("[TFT] pin init: a0/dc")
+            log.debug("[TFT] pin init: a0/dc")
             p_dc = Pin(cfg.get("a0"), Pin.OUT)
             p_dc.value(0)
 
-            log.info("[TFT] pin init: reset")
+            log.debug("[TFT] pin init: reset")
             rst_num = int(cfg.get("reset"))
             if rst_num in (45, 46):
-                log.info(f"[TFT] warning: reset pin {rst_num} is a strapping/special pin on ESP32-S3 and may be unreliable")
+                log.warn(f"[TFT] reset pin {rst_num} is a strapping/special pin on ESP32-S3 and may be unreliable")
 
             p_rst = Pin(rst_num, Pin.OUT)
             p_rst.value(1)
@@ -175,7 +175,7 @@ class HardwareFactory:
                 "cover_base_url": cover_base_url,
             }
             effective_usd = display_kwargs["usd"]
-            log.info(f"[TFT] orientation config rotate_180={cfg.get('rotate_180', None)} usd={cfg.get('usd', None)} effective_usd={effective_usd}")
+            log.debug(f"[TFT] orientation config rotate_180={cfg.get('rotate_180', None)} usd={cfg.get('usd', None)} effective_usd={effective_usd}")
 
             # LVGL driver handles SPI speed switching internally, so pass the
             # target baudrate and the NFC chip-select to keep deasserted.
@@ -207,14 +207,14 @@ class HardwareFactory:
     def get_nfc(self):
         cfg = self.config.get("nfc_reader", {})
         if not cfg.get("enabled", True):
-            log.info("NFC Reader: Initializing in DUMMY mode")
+            log.info("[NFC] initializing in DUMMY mode")
             from jukeplayer.mocks.dummy_nfc import DummyNFCReader
             return DummyNFCReader()
             
         try:
             from jukeplayer.hardware.nfc_reader import NFCReader
             # Setup SPI dynamically from config
-            log.info(f"NFC Reader: Initializing with config: {cfg}")
+            log.debug(f"[NFC] initializing with config: {cfg}")
 
             # If TFT shares this SPI bus, make sure its CS is deasserted.
             tft_cfg = self.config.get("tft", {})
@@ -228,7 +228,7 @@ class HardwareFactory:
             if shared_cfg is None:
                 raise RuntimeError("Shared SPI config missing")
             shared_unit = shared_cfg["spi_unit"]
-            log.info(
+            log.debug(
                 f"[NFC] shared SPI object id={id(spi)} unit={shared_unit}"
             )
 
@@ -254,13 +254,13 @@ class HardwareFactory:
     def get_encoder(self):
         cfg = self.config.get("encoder", {})
         if not cfg.get("enabled", True):
-            log.info("Rotary Encoder: Initializing in DUMMY mode")
+            log.info("[ENC] initializing in DUMMY mode")
             from jukeplayer.mocks.dummy_rotary import DummyRotaryIRQ
             return DummyRotaryIRQ()
             
         try:
             from jukeplayer.hardware.rotary_irq_esp import RotaryIRQ
-            log.debug(f"Rotary Encoder: Initializing with config: {cfg}")
+            log.debug(f"[ENC] initializing with config: {cfg}")
             return RotaryIRQ(
                 pin_num_clk=cfg.get("clk", 27),
                 pin_num_dt=cfg.get("dt", 25),
@@ -271,14 +271,14 @@ class HardwareFactory:
                 range_mode=RotaryIRQ.RANGE_BOUNDED
             )
         except Exception as e:
-            log.error(f"Failed to init physical encoder: {e}. Falling back to Dummy Encoder.")
+            log.error(f"[ENC] init failed: {e} — falling back to dummy encoder")
             from jukeplayer.mocks.dummy_rotary import DummyRotaryIRQ
             return DummyRotaryIRQ()
 
     def get_leds(self):
         cfg = self.config.get("leds", {})
         if not cfg.get("enabled", True):
-            log.info("LEDs: Initializing in DUMMY mode")
+            log.info("[LED] initializing in DUMMY mode")
             from jukeplayer.mocks.dummy_led import DummyLEDController
             # app.py subscripts leds by name (red/green/blue) — the fallback
             # must be a dict with those keys, not a single controller object
@@ -291,21 +291,21 @@ class HardwareFactory:
                 leds[name] = LEDController(pin_number=pin)
             return leds
         except Exception as e:
-            log.error(f"Failed to init physical LEDs: {e}. Falling back to Dummy LEDs.")
+            log.error(f"[LED] init failed: {e} — falling back to dummy LEDs")
             from jukeplayer.mocks.dummy_led import DummyLEDController
             return {name: DummyLEDController() for name in ("red", "green", "blue")}
     
     def get_pushbuttons(self):
         cfg = self.config.get("buttons", {})
         if not cfg.get("enabled", True):
-            log.info("Buttons: Initializing in DUMMY mode")
+            log.info("[BTN] initializing in DUMMY mode")
             from jukeplayer.mocks.dummy_input import DummyInputController
             return DummyInputController()
             
         try:
             from jukeplayer.hardware.pushbutton import Pushbutton
 
-            log.debug(f"Pushbuttons: Initializing with config: {cfg.get('pins')}")
+            log.debug(f"[BTN] initializing...")
             pushbuttons = []
             
             for action_name, button_cfg in cfg.get("pins", {}).items():
@@ -332,7 +332,7 @@ class HardwareFactory:
                     active_low = True
                     configured_action_name = action_name
 
-                log.debug(f"Pushbutton: Initializing pin {pin_num}, and named {configured_action_name}")
+                log.debug(f"[BTN] pin {pin_num} -> {configured_action_name}")
                 pb = Pushbutton(
                     pin_num,
                     pin_pull=pin_pull,
@@ -343,6 +343,6 @@ class HardwareFactory:
                 
             return pushbuttons
         except Exception as e:
-            log.error(f"Failed to init physical buttons: {e}. Falling back to Dummy Buttons.")
+            log.error(f"[BTN] init failed: {e} — falling back to dummy buttons")
             from jukeplayer.mocks.dummy_input import DummyInputController
             return DummyInputController()

@@ -73,10 +73,10 @@ class HAMQTTService:
             from jukeplayer.mqtt import device_config
             definitions = getattr(device_config, "SENSORS", [])
             if isinstance(definitions, list):
-                self.logger.info("[MQTT] loaded sensor definitions from device_config.py")
+                self.logger.debug("[MQTT] loaded sensor definitions from device_config.py")
                 return self._expand_placeholders(definitions)
         except Exception as e:
-            self.logger.info(f"[MQTT] device_config.py not available: {e}")
+            self.logger.debug(f"[MQTT] device_config.py not available: {e}")
 
         # 2. Fall back to JSON file for filesystem-based deployments.
         config_path = "jukeplayer/mqtt/device_config.json"
@@ -89,7 +89,7 @@ class HAMQTTService:
             else:
                 definitions = loaded
 
-            self.logger.info("[MQTT] loaded sensor definitions from device_config.json")
+            self.logger.debug("[MQTT] loaded sensor definitions from device_config.json")
             return self._expand_placeholders(definitions)
         except OSError as e:
             self.logger.warning(f"[MQTT] {config_path} not found: {e}. Discovery disabled.")
@@ -121,13 +121,13 @@ class HAMQTTService:
 
         for item in self._sensor_definitions():
             if not isinstance(item, dict):
-                self.logger.info(f"[MQTT] Skipping invalid sensor config entry: {item}")
+                self.logger.warn(f"[MQTT] skipping invalid sensor config entry: {item}")
                 continue
 
             label = item.get("label")
             object_id = item.get("object_id")
             if not label or object_id is None:
-                self.logger.info(f"[MQTT] Skipping incomplete sensor config entry: {item}")
+                self.logger.warn(f"[MQTT] skipping incomplete sensor config entry: {item}")
                 continue
 
             if isinstance(object_id, str):
@@ -178,7 +178,7 @@ class HAMQTTService:
                     _probe_writer.close()
                     await _probe_writer.wait_closed()
                 except Exception as probe_err:
-                    self.logger.info(f"[MQTT] Broker unreachable: {probe_err}")
+                    self.logger.warn(f"[MQTT] broker unreachable: {probe_err}")
                     raise  # fall through to the shared backoff path
 
                 self.mqtt_client = MQTTClient(
@@ -194,7 +194,7 @@ class HAMQTTService:
                 self.mqtt_client.set_last_will(self.availability_topic, b"offline", True, 1)
 
                 self.mqtt_client.connect()
-                self.logger.info("[MQTT] Connected successfully!")
+                self.logger.info("[MQTT] connected successfully")
                 self._connected = True
                 reconnect_delay = 2
                 self.mqtt_client.publish(self.availability_topic, b"online", True, 1)
@@ -231,7 +231,7 @@ class HAMQTTService:
                 
             self._connected = False
             self.cleanup()
-            self.logger.info(f"[MQTT] Reconnecting in {reconnect_delay}s...")
+            self.logger.info(f"[MQTT] reconnecting in {reconnect_delay}s...")
             await asyncio.sleep(reconnect_delay)
             reconnect_delay = min(reconnect_delay * 2, max_reconnect_delay)
 
@@ -276,7 +276,7 @@ class HAMQTTService:
                 t[0], t[1], t[2], t[3], t[4], t[5]
             )
 
-            self.logger.info(f"[MQTT] Publishing snapshot ({reason})")
+            self.logger.debug(f"[MQTT] publishing snapshot ({reason})")
             self.entity_group.publish_state(payload)
             return True
 
