@@ -6,6 +6,7 @@ class NFCService:
 
     async def handle_microswitch_press(self):
         """Handle microswitch press - read card in normal mode, write in encoding mode."""
+        self.app.display.wake()  # the microswitch press is user presence
         import json
 
         try:

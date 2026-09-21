@@ -24,6 +24,7 @@ class HardwareService:
         while True:
             await self._encoder_flag.wait()
             try:
+                self.app.display.wake()  # any encoder turn is user presence
                 current_volume = self.app.encoder.value()
                 self.app.logger.debug(f"[ENC] turned — volume {current_volume}%")
                 # Manage the 300ms debounce API timer

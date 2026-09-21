@@ -13,4 +13,5 @@ class DummyDisplay:
     def set_text(self, title): pass
     def update(self, state={}): pass
     def toggle_backlight(self): pass
+    def wake(self): pass
     def show_message(self, message, duration=5): pass

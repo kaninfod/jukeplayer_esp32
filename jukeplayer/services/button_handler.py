@@ -85,6 +85,9 @@ class ButtonHandler:
         if handler is None:
             handler = self._handlers.get(button_name)
 
+        # Any physical press is user presence — wake the display
+        self.app.display.wake()
+
         if handler is None:
             self.app.logger.info(f"[BTN] no handler for {button_name} ({press_type})")
             return

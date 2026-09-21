@@ -169,11 +169,29 @@ class DisplayManager:
         color_invert=False,
         init_spi=None,
         cover_base_url=None,
+        refresh_split=4,
+        backlight_idle_s=0,
     ):
         self.width = width
         self.height = height
         self.app_state = app_state
         self.backlight_active_low = backlight_active_low
+        # do_refresh chunking: height is divided into `refresh_split` segments,
+        # each segment is one CS-asserted burst. Valid values divide the height
+        # evenly with (height/split) % lines_per_write(4) == 0 — 4, 8, 10, 16,
+        # 20, 40, 80 for the 320-row panel. Larger split = smaller bursts
+        # (the 2026-09-19 corruption mitigation).
+        self._refresh_split = refresh_split
+        # Backlight idle management (2026-09-21): while dark the refresh gate
+        # skips all DMA — the corruption exposure, burn-in risk and LED draw
+        # concentrate into the watched moments. The framebuffer keeps updating
+        # while dark, so wake() forces one full refresh to bring the panel
+        # current. backlight_idle_s = 0 disables auto-off.
+        self._backlight_idle_s = backlight_idle_s
+        self._backlight_on = True
+        self._playing = False
+        self._last_interaction = time.ticks_ms()
+        self._idle_task = None
 
         log.info(f"[ILI9488] creating display {width}x{height} usd={usd} mirror={mirror}")
         if color_invert:
@@ -255,7 +273,15 @@ class DisplayManager:
         try:
             await asyncio.sleep_ms(self._refresh_debounce_ms)
             if hasattr(self.display, "do_refresh"):
-                await self.display.do_refresh(split=4)
+                # Corruption gate: while the backlight is off there is nothing
+                # to see — skip the DMA entirely (the framebuffer keeps
+                # updating; wake() forces one push to catch the panel up).
+                if not self._backlight_on:
+                    log.debug("[ILI9488] refresh skipped — backlight off")
+                    return
+                if self._refresh_split != 4:
+                    log.debug(f"[ILI9488] refresh split={self._refresh_split}")
+                await self.display.do_refresh(split=self._refresh_split)
             else:
                 self.display.show()
         except asyncio.CancelledError:
@@ -307,13 +333,46 @@ class DisplayManager:
     def set_brightness(self, percent):
         """Set backlight brightness 0-100%% (currently on/off only)."""
         percent = max(0, min(100, int(percent)))
-        if self.backlight_active_low:
-            self.backlight.value(0 if percent > 0 else 1)
-        else:
-            self.backlight.value(1 if percent > 0 else 0)
+        self._set_backlight(percent > 0)
+
+    def _set_backlight(self, on):
+        """Drive the backlight pin honoring active_low and track the state."""
+        self.backlight.value(0 if (self.backlight_active_low == on) else 1)
+        self._backlight_on = on
 
     def toggle_backlight(self):
-        self.backlight.value(0 if self.backlight.value() else 1)
+        self._set_backlight(not self._backlight_on)
+        if self._backlight_on:
+            # Manual on counts as presence; panel may hold a stale image if
+            # pushes were skipped while dark — bring it current.
+            self._last_interaction = time.ticks_ms()
+            self._schedule_refresh()
+
+    def wake(self):
+        """Any user interaction: light the panel if dark (with one full refresh
+        to catch up skipped pushes) and restart the idle timer."""
+        self._last_interaction = time.ticks_ms()
+        if not self._backlight_on:
+            self._set_backlight(True)
+            log.info("[ILI9488] wake — interaction")
+            self._schedule_refresh()
+
+    def _auto_backlight_tick(self):
+        """Idle check: darken when not playing and untouched for the window."""
+        if not self._backlight_idle_s or not self._backlight_on or self._playing:
+            return
+        if time.ticks_diff(time.ticks_ms(), self._last_interaction) < self._backlight_idle_s * 1000:
+            return
+        self._set_backlight(False)
+        log.info(f"[ILI9488] backlight auto-off (idle {self._backlight_idle_s}s)")
+
+    async def _idle_loop(self):
+        while True:
+            try:
+                self._auto_backlight_tick()
+            except Exception as e:
+                log.error(f"[ILI9488] idle tick error: {e}")
+            await asyncio.sleep(10)
 
     def draw_test_pattern(self):
         """Public hook to fill the album-art area with an RGB565 gradient."""
@@ -326,6 +385,15 @@ class DisplayManager:
                 break
         else:
             return  # delta contains only non-visual keys — no repaint needed
+        # Diagnostic (2026-09-20): name which keys trigger a repaint — the
+        # backend's ~4-min current_track pushes repaint an unchanged screen;
+        # this line identifies the flapping key.
+        log.debug(f"[ILI9488] repaint triggered by delta keys: {sorted(state.keys())}")
+        if PLAYER_STATUS in state:
+            playing = state[PLAYER_STATUS] == "PLAY"
+            if playing and not self._backlight_on:
+                self.wake()  # remote play start (web UI) lights the panel
+            self._playing = playing
         self.current_screen.update(state)
         self._schedule_refresh()
 
@@ -333,6 +401,8 @@ class DisplayManager:
         if not self.is_running:
             self.is_running = True
             log.info("[ILI9488] start()")
+            if self._backlight_idle_s > 0 and self._idle_task is None:
+                self._idle_task = asyncio.create_task(self._idle_loop())
             if hasattr(self.current_screen, "set_initial_boot_state"):
                 self.current_screen.set_initial_boot_state()
                 self._schedule_refresh()
@@ -342,6 +412,9 @@ class DisplayManager:
         if self._message_timer_task:
             self._message_timer_task.cancel()
             self._message_timer_task = None
+        if self._idle_task:
+            self._idle_task.cancel()
+            self._idle_task = None
 
 
 class AlbumArtPlaceholder:

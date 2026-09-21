@@ -149,6 +149,21 @@ class WSService:
         await asyncio.sleep(0.5)
         machine.reset()
 
+    async def handle_config_set(self, payload):
+        """Backend-sent config update: validate, write to config.json.
+        The device trusts the backend (closed network, the only WS peer)."""
+        import json
+        config = payload.get("config")
+        if not config:
+            self.app.logger.warn("[WS] config_set: no config in payload")
+            return
+        try:
+            with open("config.json", "w") as f:
+                json.dump(config, f)
+            self.app.logger.info("[WS] config_set: config.json written")
+        except Exception as e:
+            self.app.logger.error(f"[WS] config_set failed: {e}")
+
     async def register_with_backend(self):
         """Send registration message to backend."""
         import time, asyncio, json
@@ -160,7 +175,8 @@ class WSService:
                     "client_type": self.app.config["client"]["type"],
                     "client_name": self.app.config["client"]["name"],
                     "capabilities": self.app.config["capabilities"],
-                    "device_id": self.app.config["client"].get("device_id")
+                    "device_id": self.app.config["client"].get("device_id"),
+                    "config": self.app.config
                 }
             }
             

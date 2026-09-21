@@ -90,6 +90,11 @@ class DisplayManager:
     def toggle_backlight(self):
         self.backlight.value(0 if self.backlight.value() else 1)
 
+    def wake(self):
+        """No-op for now — the backlight idle concepts land on st7735r after
+        proving out on ili9488 (2026-09-21). Presence is a no-op here."""
+        pass
+
     def switch_layout(self, layout_name, duration=None, fallback_layout=None):
         if self.timer_task:
             try:

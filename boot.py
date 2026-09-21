@@ -9,6 +9,16 @@ import json
 import sys
 import time
 
+# Config safety net: preserve the last-good config before the app can overwrite it
+# via a remote config_set (WS). If the primary fails to parse, boot falls back.
+try:
+    with open("config.json", "r") as f:
+        cfg_data = f.read()
+    with open("config.json.bak", "w") as f:
+        f.write(cfg_data)
+except Exception:
+    pass  # config.json doesn't exist yet — first boot
+
 try:
     from jukeplayer.core.logger import log
     from jukeplayer.core import wifi_manager
@@ -25,6 +35,8 @@ def _boot_forensics():
     import struct
     import machine
     MAGIC_ALIVE = 0x414C4956  # 'ALIV'
+    CRASH_WINDOW_S = 300  # matches main.py's crash-loop window
+    count, last = 0, 0
     try:
         raw = machine.RTC().memory()
         count, last, magic, alive_ts = (
@@ -56,11 +68,32 @@ def _boot_forensics():
         names = {1: "PWRON (power-on or BROWNOUT)", 2: "HARD (panic / sw reset)",
                  3: "WDT (watchdog)", 4: "DEEPSLEEP", 5: "SOFT"}
         log.warn(f"[CRASH] reset reason: {names.get(rr, str(rr))}")
+        # Hardware resets bypass main.py's Python-level crash counter (WDT and
+        # panic never enter the exception machinery) — count them here so the
+        # stay-down gate covers every reset class. 2026-09-19 night: ~40
+        # unguarded WDT/HARD resets looped until morning because the counter
+        # only saw Python-level crashes. Time source is the pre-NTP RTC clock
+        # (consistent across boots, so the delta logic is sound).
+        if rr in (2, 3):  # HARD panic or watchdog
+            now = int(time.time())
+            count = count + 1 if (now - last) < CRASH_WINDOW_S else 1
+            machine.RTC().memory(struct.pack("<IIII", count, now, 0, 0))
+            log.warn(f"[CRASH] hardware reset counted — {count} within {CRASH_WINDOW_S}s window")
+            log.flush_now()
+            if count >= 3:
+                log.error(f"[CRASH] {count} hardware resets in {CRASH_WINDOW_S}s — staying down; power-cycle to recover")
+                while True:
+                    log.flush_now()
+                    time.sleep(1)
+        elif rr == 1:  # PWRON: fresh power-up — clear the counter (the manual recovery path)
+            machine.RTC().memory(struct.pack("<IIII", 0, 0, 0, 0))
     except Exception as e:
         log.error(f"[CRASH] reset reason unavailable: {e}")
 
 def load_config():
-    """Load configuration from config.json file at device root."""
+    """Load configuration from config.json file at device root.
+    Falls back to config.json.bak if the primary fails to parse."""
+    import os
     try:
         with open("config.json", "r") as f:
             config = json.load(f)
@@ -68,7 +101,14 @@ def load_config():
         return config
     except Exception as e:
         log.error(f"[CFG] critical error loading config.json: {e}")
-        # Return fallback configuration or halt
+        if os.path.exists("config.json.bak"):
+            try:
+                with open("config.json.bak", "r") as f:
+                    config = json.load(f)
+                log.warn(f"[CFG] fell back to config.json.bak — client: {config.get('client', {}).get('name', 'Unknown')}")
+                return config
+            except Exception as e2:
+                log.error(f"[CFG] config.json.bak also failed: {e2}")
         return None
 
 def boot_sequence():
@@ -110,6 +150,10 @@ def boot_sequence():
     # 2. Sync NTP Time
     log.info("[NTP] attempting time sync...")
     log.sync_time()
+    # Diagnostic probe (2026-09-19): the forensics epochs read ~30 years
+    # behind the real clock despite "synced successfully" — settle whether
+    # ntptime.settime() actually reaches time.time() on this build.
+    log.info(f"[NTP] device epoch after sync: {int(time.time())}")
 
     # 3. Start WebREPL if enabled
     webrepl_cfg = config.get("webrepl", {})

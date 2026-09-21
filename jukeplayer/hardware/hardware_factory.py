@@ -189,6 +189,24 @@ class HardwareFactory:
             else:
                 display_kwargs["init_spi"] = _tft_spi_init
 
+            # Refresh burst size (ili9488 only): larger split = smaller
+            # CS-asserted DMA bursts. Validate against the driver's constraints
+            # (height % split == 0, (height/split) % lines_per_write(4) == 0);
+            # fall back to 4 with a warning if the value doesn't fit.
+            if driver == "ili9488":
+                split = int(cfg.get("refresh_split", 4))
+                height = display_kwargs["height"]
+                if split != 4 and height % split == 0 and (height // split) % 4 == 0:
+                    display_kwargs["refresh_split"] = split
+                elif split != 4:
+                    log.warn(f"[TFT] refresh_split {split} invalid for height {height} (lines_per_write=4) — using 4")
+                # Backlight auto-off window (seconds; 0 disables). The display
+                # manager darkens the panel when idle and gates all refresh
+                # DMA while dark.
+                idle_s = int(cfg.get("backlight_idle_s", 0))
+                if idle_s > 0:
+                    display_kwargs["backlight_idle_s"] = idle_s
+
             display = DisplayManager(**display_kwargs)
 
             # log.info("[TFT] init stage 4/5: enabling backlight")
