@@ -200,12 +200,13 @@ class HardwareFactory:
                     display_kwargs["refresh_split"] = split
                 elif split != 4:
                     log.warn(f"[TFT] refresh_split {split} invalid for height {height} (lines_per_write=4) — using 4")
-                # Backlight auto-off window (seconds; 0 disables). The display
-                # manager darkens the panel when idle and gates all refresh
-                # DMA while dark.
-                idle_s = int(cfg.get("backlight_idle_s", 0))
-                if idle_s > 0:
-                    display_kwargs["backlight_idle_s"] = idle_s
+
+            # Backlight auto-off window (seconds; 0 disables) — both drivers.
+            # The manager darkens the panel when idle and gates all panel DMA
+            # while dark.
+            idle_s = int(cfg.get("backlight_idle_s", 0))
+            if idle_s > 0:
+                display_kwargs["backlight_idle_s"] = idle_s
 
             display = DisplayManager(**display_kwargs)
 
@@ -305,8 +306,10 @@ class HardwareFactory:
             from jukeplayer.hardware.led import LEDController
             pins = cfg.get("pins", {})
             leds = {}
+            brightness = int(cfg.get("brightness", 100))
             for name, pin in pins.items():
-                leds[name] = LEDController(pin_number=pin)
+                leds[name] = LEDController(pin_number=pin, brightness=brightness)
+                log.info(f"[LED] {name} on GPIO{pin} at {brightness}% brightness")
             return leds
         except Exception as e:
             log.error(f"[LED] init failed: {e} — falling back to dummy LEDs")

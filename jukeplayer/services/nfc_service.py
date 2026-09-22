@@ -34,8 +34,11 @@ class NFCService:
             else:
                 # NORMAL MODE: Read from the card
                 self.app.logger.info(f"[MS] NORMAL MODE - Reading card")
+                status_led = self.app.leds.get("status")
+                if status_led:
+                    status_led.confirm_blinks(5)  # . . . . . — the reading feedback
                 self.app.display.show_message("Reading NFC card...", duration=5)
-                await self.handle_read_nfc()        
+                await self.handle_read_nfc()
         except Exception as e:
             self.app.logger.error(f"[MS] error handling microswitch press: {e}")
 
@@ -126,14 +129,19 @@ class NFCService:
         if self.app.nfc is None:
             self.app.logger.warn(f"[MS-READ] NFC reader not available")
             return
-        
+
+        status_led = self.app.leds.get("status")
         try:
             album_id = self.app.nfc.read_album_id()
             if album_id:
                 self.app.logger.info(f"[MS-READ] Card read - album_id: {album_id}")
                 await self.handle_card_scanned(album_id)
+                if status_led:
+                    status_led.long_blink()  # success: -
                 await asyncio.sleep(1)  # Debounce after successful read
             else:
                 self.app.logger.info(f"[MS-READ] No card detected or read failed")
+                if status_led:
+                    status_led.start_failure_pulse()  # failure: slow pulsing
         except Exception as e:
             self.app.logger.error(f"[MS-READ] error: {e}")

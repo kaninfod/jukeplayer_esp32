@@ -107,6 +107,17 @@ class ButtonHandler:
             # Send the command immediately so the backend responds fast.
             await self.app.ws.send(json.dumps({"type": command, "payload": {}}))
             self.app.logger.info(f"[WS] command sent: {command}")
+            # The LED vocabulary: the per-command confirmation pattern.
+            status_led = self.app.leds.get("status")
+            if status_led:
+                if command == "play_pause":
+                    status_led.confirm_blinks(1)   # .
+                elif command == "next_track":
+                    status_led.confirm_blinks(2)   # . .
+                elif command == "previous_track":
+                    status_led.confirm_blinks(3)   # . . .
+                elif command == "stop":
+                    status_led.long_blink()        # -
             # Then show the overlay without waiting for the screen refresh.
             self.app.display.show_message(f"{label} pressed", duration=2)
         return _sender

@@ -176,7 +176,8 @@ class WSService:
                     "client_name": self.app.config["client"]["name"],
                     "capabilities": self.app.config["capabilities"],
                     "device_id": self.app.config["client"].get("device_id"),
-                    "config": self.app.config
+                    "config": self.app.config,
+                    "tft_refresh_splits": getattr(self.app.display, "valid_refresh_splits", [])
                 }
             }
             

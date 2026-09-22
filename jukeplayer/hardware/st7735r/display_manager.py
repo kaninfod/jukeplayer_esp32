@@ -1,5 +1,7 @@
 from jukeplayer.core.state_constants import *
+from jukeplayer.core.logger import log
 import asyncio
+import time
 from jukeplayer.nanogui.core.writer import CWriter
 from jukeplayer.nanogui.core.nanogui import refresh
 from jukeplayer.nanogui.widgets.label import Label, ALIGN_LEFT, ALIGN_CENTER, ALIGN_RIGHT
@@ -22,6 +24,7 @@ class DisplayManager:
         height=128,
         init_spi=None,
         color_invert=False,
+        backlight_idle_s=0,
         **kwargs,
     ):
         from machine import Pin
@@ -41,6 +44,17 @@ class DisplayManager:
             color_invert=color_invert,
         )
         self.backlight = Pin(backlight_pin, Pin.OUT, value=0)
+        # Backlight idle management (the ili9488 concepts, 2026-09-21): the
+        # show() gate skips the panel DMA while dark; wake() lights and
+        # catches up. The ST7735R push is a single ~36ms blocking transfer —
+        # no split support, so valid_refresh_splits is empty (the config page
+        # hides the split field for this device).
+        self._backlight_idle_s = backlight_idle_s
+        self._backlight_on = True
+        self._playing = False
+        self._last_interaction = time.ticks_ms()
+        self._idle_task = None
+        self.valid_refresh_splits = []
         black = self.display.rgb(0, 0, 0)
         white = self.display.rgb(255, 255, 255)
         cyan = self.display.rgb(0, 200, 200)
@@ -58,7 +72,7 @@ class DisplayManager:
         initial_state = self.app_state.data if self.app_state else {}
         self.current_screen.update(initial_state)
         self.current_screen.draw_static()
-        self.display.show()
+        self._show_current()
 
         self.is_running = False
         self.timer_task = None
@@ -81,19 +95,57 @@ class DisplayManager:
         self.current_screen.show_message(str(message), header="Message")
         self.display.fill(0)
         self.current_screen.draw_static()
-        self.display.show()
+        self._show_current()
 
         if duration is not None:
             self.timer_task = asyncio.create_task(
                 self._layout_timer_loop(duration, "status")
             )
     def toggle_backlight(self):
-        self.backlight.value(0 if self.backlight.value() else 1)
+        self._set_backlight(not self._backlight_on)
+        if self._backlight_on:
+            self._last_interaction = time.ticks_ms()
+            self._show_current()
+
+    def _set_backlight(self, on):
+        """Drive the backlight (0 = on for this module) and track the state."""
+        self.backlight.value(0 if on else 1)
+        self._backlight_on = on
+
+    def _show_current(self):
+        """Gate: skip the panel DMA while the backlight is off (the corruption/
+        LED/burn-in win). The framebuffer keeps updating; wake() pushes."""
+        if not self._backlight_on:
+            log.debug("[TFT] refresh skipped — backlight off")
+            return
+        self.display.show()
 
     def wake(self):
-        """No-op for now — the backlight idle concepts land on st7735r after
-        proving out on ili9488 (2026-09-21). Presence is a no-op here."""
-        pass
+        """Any user interaction: light the panel if dark (with one full push to
+        catch up skipped transfers) and restart the idle timer."""
+        self._last_interaction = time.ticks_ms()
+        if not self._backlight_on:
+            self._set_backlight(True)
+            log.info("[TFT] wake — interaction")
+            self._show_current()
+        self._last_interaction = time.ticks_ms()
+
+    def _auto_backlight_tick(self):
+        """Idle check: darken when not playing and untouched for the window."""
+        if not self._backlight_idle_s or not self._backlight_on or self._playing:
+            return
+        if time.ticks_diff(time.ticks_ms(), self._last_interaction) < self._backlight_idle_s * 1000:
+            return
+        self._set_backlight(False)
+        log.info(f"[TFT] backlight auto-off (idle {self._backlight_idle_s}s)")
+
+    async def _idle_loop(self):
+        while True:
+            try:
+                self._auto_backlight_tick()
+            except Exception as e:
+                log.error(f"[TFT] idle tick error: {e}")
+            await asyncio.sleep(10)
 
     def switch_layout(self, layout_name, duration=None, fallback_layout=None):
         if self.timer_task:
@@ -110,7 +162,7 @@ class DisplayManager:
             current_state = self.app_state.data if self.app_state else {}
             self.current_screen.update(current_state)
             self.current_screen.draw_static()
-            self.display.show()
+            self._show_current()
 
             if duration is not None and fallback_layout == "message":
                 self.timer_task = asyncio.create_task(
@@ -120,7 +172,7 @@ class DisplayManager:
             self.current_layout = layout_name
             self.display.fill(0)
             self.current_screen.draw_static()
-            self.display.show()
+            self._show_current()
 
     async def _layout_timer_loop(self, duration, fallback_layout):
         try:
@@ -142,21 +194,31 @@ class DisplayManager:
                 break
         else:
             return  # delta contains only non-visual keys — no repaint needed
+        if PLAYER_STATUS in state:
+            playing = state[PLAYER_STATUS] == "PLAY"
+            if playing and not self._backlight_on:
+                self.wake()  # remote play start (web UI) lights the panel
+            self._playing = playing
         self.current_screen.update(state)
-        self.display.show()
+        self._show_current()
 
     def start(self):
         if not self.is_running:
             self.is_running = True
+            if self._backlight_idle_s > 0 and self._idle_task is None:
+                self._idle_task = asyncio.create_task(self._idle_loop())
             if hasattr(self.current_screen, "set_initial_boot_state"):
                 self.current_screen.set_initial_boot_state()
-                self.display.show()
+                self._show_current()
 
     def stop(self):
         self.is_running = False
         if self.timer_task:
             self.timer_task.cancel()
             self.timer_task = None
+        if self._idle_task:
+            self._idle_task.cancel()
+            self._idle_task = None
 
 
 class StatusScreen:

@@ -50,6 +50,13 @@ class JukeBoxApp:
         
         factory = HardwareFactory(self.config)
 
+        self.leds = {}
+        self.leds = factory.get_leds()
+        # LED created early (user preference). The blink does NOT start here —
+        # hypothesis (2026-09-21): asyncio.create_task from this context never
+        # gets scheduled (REPL and boot agree); the blink starts in run()
+        # where the event loop is live.
+
         self.hw_service = HardwareService(self)
 
         # Initialize MQTT service
@@ -75,12 +82,6 @@ class JukeBoxApp:
 
         self.state.subscribe(self.display.update)
         self.state.subscribe(self.mqtt_service.publish_snapshot)
-
-        self.leds = {}
-        self.leds = factory.get_leds()
-        self.leds["red"].blink(interval_ms=200)  # Turn on red LED to indicate booting
-        self.leds["green"].turn_off()
-        self.leds["blue"].turn_off()
 
         # Extract backend settings from config
         backend_ip = self.config["backend"]["ip"]
@@ -109,6 +110,13 @@ class JukeBoxApp:
         import asyncio, gc
 
         self.logger.info("[RUN] entering run loop")
+        # Hypothesis test (2026-09-21): the blink task created in the sync
+        # __init__ never ran (REPL and boot agree). Starting the blink from
+        # INSIDE the running loop — if the LED blinks now, the mechanism is
+        # confirmed and the rule becomes "schedule LED tasks from the loop".
+        for led in self.leds.values():
+            led.blink(interval_ms=100)
+        log.info("[LED] blink started from loop context")
         self.logger.info("Waiting 3 seconds before WebSocket connection...")
         self._heap_mark("run:before_wait")
         await asyncio.sleep(3)
