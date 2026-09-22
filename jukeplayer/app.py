@@ -7,9 +7,6 @@ from jukeplayer.services.hardware_service import HardwareService
 import asyncio
 from jukeplayer.core.app_state import AppState
 
-
-from jukeplayer.mqtt.ha_mqtt_devices import HAMQTTService
-
 __version__ = "FILESYSTEM_v1"  # Change to "FILESYSTEM_v1" in your device copy
 
 def load_config():
@@ -59,10 +56,6 @@ class JukeBoxApp:
 
         self.hw_service = HardwareService(self)
 
-        # Initialize MQTT service
-        self.mqtt_service = HAMQTTService(self)
-        self.mqtt_start_delay_s = int(self.config.get("mqtt", {}).get("start_delay_s", 6))
-
         self.state = AppState()
         self.nfc = factory.get_nfc()
         self.pushbuttons = factory.get_pushbuttons()
@@ -81,7 +74,6 @@ class JukeBoxApp:
         self.debounce_task = None
 
         self.state.subscribe(self.display.update)
-        self.state.subscribe(self.mqtt_service.publish_snapshot)
 
         # Extract backend settings from config
         backend_ip = self.config["backend"]["ip"]
@@ -144,15 +136,6 @@ class JukeBoxApp:
             log.debug(f"[WDT] armed, timeout {timeout_ms} ms")
         else:
             log.info("[WDT] disabled by config")
-
-        if self.mqtt_service.enabled:
-            self.logger.info(
-                f"[MQTT] delaying start by {self.mqtt_start_delay_s}s to prioritize WS connection"
-            )
-            await asyncio.sleep(self.mqtt_start_delay_s)
-            mqtt_task = asyncio.create_task(self.mqtt_service.run())
-            await asyncio.gather(ws_task, telemetry_task, mqtt_task)
-            return
 
         await asyncio.gather(ws_task, telemetry_task)
 

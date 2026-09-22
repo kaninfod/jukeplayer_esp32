@@ -14,13 +14,12 @@ MEMORY_USAGE = 13
 NFC_WRITE_STATE = 14
 NFC_ENCODING_ALBUM_ID = 15
 LAST_NFC_SCAN = 16
-TIMESTAMP = 17
 WS_CONNECTED = 18
 COVER_URL = 19
 MUTED = 20
 
 # Keys no display renders — AppState deltas containing only these skip
-# display repaints entirely (MQTT still receives them via its own subscriber)
+# display repaints entirely
 NON_VISUAL_KEYS = {
     MEMORY_USAGE,
     CLIENT_ID,
