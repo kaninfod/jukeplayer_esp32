@@ -294,28 +294,6 @@ class HardwareFactory:
             from jukeplayer.mocks.dummy_rotary import DummyRotaryIRQ
             return DummyRotaryIRQ()
 
-    def get_leds(self):
-        cfg = self.config.get("leds", {})
-        if not cfg.get("enabled", True):
-            log.info("[LED] initializing in DUMMY mode")
-            from jukeplayer.mocks.dummy_led import DummyLEDController
-            # app.py subscripts leds by name (red/green/blue) — the fallback
-            # must be a dict with those keys, not a single controller object
-            return {name: DummyLEDController() for name in ("red", "green", "blue")}
-        try:
-            from jukeplayer.hardware.led import LEDController
-            pins = cfg.get("pins", {})
-            leds = {}
-            brightness = int(cfg.get("brightness", 100))
-            for name, pin in pins.items():
-                leds[name] = LEDController(pin_number=pin, brightness=brightness)
-                log.info(f"[LED] {name} on GPIO{pin} at {brightness}% brightness")
-            return leds
-        except Exception as e:
-            log.error(f"[LED] init failed: {e} — falling back to dummy LEDs")
-            from jukeplayer.mocks.dummy_led import DummyLEDController
-            return {name: DummyLEDController() for name in ("red", "green", "blue")}
-    
     def get_pushbuttons(self):
         cfg = self.config.get("buttons", {})
         if not cfg.get("enabled", True):
