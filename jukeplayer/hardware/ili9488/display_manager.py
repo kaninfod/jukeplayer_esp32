@@ -192,15 +192,6 @@ class DisplayManager:
         self._playing = False
         self._last_interaction = time.ticks_ms()
         self._idle_task = None
-        # The valid do_refresh splits, computed from this panel's constraints
-        # (the driver's own lines_per_write and the height) — carried in the
-        # registration so the backend config page can render a split dropdown
-        # without ever knowing driver internals. The st7735r reports [].
-        self._lines_per_write = getattr(self.display, "_lines_per_write", 1)
-        self.valid_refresh_splits = [
-            d for d in range(4, height + 1)
-            if height % d == 0 and (height // d) % self._lines_per_write == 0
-        ]
 
         log.info(f"[ILI9488] creating display {width}x{height} usd={usd} mirror={mirror}")
         if color_invert:
@@ -222,6 +213,15 @@ class DisplayManager:
             init_spi=init_spi or False,
             lines_per_write=4,
         )
+        # The valid do_refresh splits, computed from the driver's own
+        # lines_per_write and the height — carried in the registration so the
+        # backend config page can render a split dropdown without ever knowing
+        # driver internals. The st7735r reports [].
+        self._lines_per_write = getattr(self.display, "_lines_per_write", 1)
+        self.valid_refresh_splits = [
+            d for d in range(4, height + 1)
+            if height % d == 0 and (height // d) % self._lines_per_write == 0
+        ]
 
         log.info(f"[ILI9488] backlight pin {backlight_pin} on (active_low={self.backlight_active_low})")
         self.backlight = Pin(backlight_pin, Pin.OUT)
