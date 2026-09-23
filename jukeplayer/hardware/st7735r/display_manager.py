@@ -14,7 +14,7 @@ class DisplayManager:
 
     def __init__(
         self,
-        spi,
+        spi_ctl,
         app_state=None,
         cs=8,
         dc=3,
@@ -22,7 +22,6 @@ class DisplayManager:
         backlight_pin=21,
         width=160,
         height=128,
-        init_spi=None,
         color_invert=False,
         backlight_idle_s=0,
         **kwargs,
@@ -33,14 +32,14 @@ class DisplayManager:
         self.height = height
 
         self.app_state = app_state
+        self.spi_ctl = spi_ctl
         self.display = st7735r.ST7735R(
-            spi=spi,
+            spi=spi_ctl.spi,
             cs=self._as_pin(cs, Pin),
             dc=self._as_pin(dc, Pin),
             rst=self._as_pin(rst, Pin),
             width=self.width,
             height=self.height,
-            init_spi=init_spi or False,
             color_invert=color_invert,
         )
         self.backlight = Pin(backlight_pin, Pin.OUT, value=0)

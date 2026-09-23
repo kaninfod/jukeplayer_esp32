@@ -1,76 +1,14 @@
 # jukeplayer/lib/hardware_factory.py
 from jukeplayer.core.logger import log
 from machine import Pin, SPI
+from jukeplayer.hardware.spi_controller import SPIController
 
 class HardwareFactory:
     def __init__(self, config):
         self._parent_config = config
         self.config = config.get("hardware", {})
-        self._shared_spi = None
-        self._shared_spi_cfg = None
-        self._shared_spi_kwargs = None
-        self._init_shared_spi()
+        self.spi_ctl = SPIController(config)
 
-    def _init_shared_spi(self):
-        """Initialize one shared SPI bus from hardware.spi config."""
-        spi_cfg = self.config.get("spi", {})
-        required = ("spi_unit", "sck", "mosi")
-        missing = [k for k in required if spi_cfg.get(k) is None]
-        if missing:
-            raise ValueError(f"hardware.spi missing required keys: {', '.join(missing)}")
-
-        base_baudrate = int(spi_cfg.get("baudrate", 4000000))
-        self._display_baudrate = int(spi_cfg.get("display_baudrate", base_baudrate))
-        self._nfc_baudrate = int(spi_cfg.get("nfc_baudrate", base_baudrate))
-
-        self._shared_spi_cfg = {
-            "spi_unit": int(spi_cfg.get("spi_unit")),
-            "baudrate": base_baudrate,
-            "polarity": int(spi_cfg.get("polarity", 0)),
-            "phase": int(spi_cfg.get("phase", 0)),
-            "sck": int(spi_cfg.get("sck")),
-            "mosi": int(spi_cfg.get("mosi")),
-            "miso": int(spi_cfg.get("miso")) if spi_cfg.get("miso") is not None else None,
-        }
-
-        p_sck = Pin(self._shared_spi_cfg["sck"])
-        p_mosi = Pin(self._shared_spi_cfg["mosi"])
-        p_miso = Pin(self._shared_spi_cfg["miso"]) if self._shared_spi_cfg["miso"] is not None else None
-
-        kwargs = {
-            "baudrate": self._shared_spi_cfg["baudrate"],
-            "polarity": self._shared_spi_cfg["polarity"],
-            "phase": self._shared_spi_cfg["phase"],
-            "sck": p_sck,
-            "mosi": p_mosi,
-        }
-        if p_miso is not None:
-            kwargs["miso"] = p_miso
-
-        self._shared_spi = SPI(self._shared_spi_cfg["spi_unit"], **kwargs)
-        self._shared_spi_kwargs = kwargs
-        log.info(
-            f"[SPI] shared bus initialized id={id(self._shared_spi)} unit={self._shared_spi_cfg['spi_unit']}"
-        )
-
-    def _get_shared_spi(self):
-        if self._shared_spi is None or self._shared_spi_kwargs is None:
-            self._init_shared_spi()
-
-        spi = self._shared_spi
-        kwargs = self._shared_spi_kwargs
-        if spi is None or kwargs is None:
-            raise RuntimeError("Shared SPI not initialized")
-        spi.init(**kwargs)
-        return spi
-
-    def _get_spi_kwargs(self, baudrate=None):
-        """Return a copy of the shared SPI kwargs with an optional baudrate override."""
-        kwargs = dict(self._shared_spi_kwargs)
-        if baudrate is not None:
-            kwargs["baudrate"] = baudrate
-        return kwargs
-        
     def get_display(self, app_state):
         tft_cfg = self.config.get("tft", {})
         if not tft_cfg.get("enabled", False):
@@ -130,35 +68,15 @@ class HardwareFactory:
             led_num = int(cfg.get("led", 21))
 
 
-            log.info("[TFT] init stage 2/5: creating SPI bus")
-            spi = self._get_shared_spi()
-            shared_cfg = self._shared_spi_cfg
-            if shared_cfg is None:
-                raise RuntimeError("Shared SPI config missing")
-            shared_unit = shared_cfg["spi_unit"]
-            log.info(
-                f"[TFT] shared SPI object id={id(spi)} unit={shared_unit}"
-            )
-
-            shared_kwargs = self._shared_spi_kwargs
-            if shared_kwargs is None:
-                raise RuntimeError("Shared SPI kwargs missing")
-
-            def _tft_spi_init(spi_obj):
-                display_kwargs = self._get_spi_kwargs(self._display_baudrate)
-                spi_obj.init(**display_kwargs)
-                nfc_cfg_local = self.config.get("nfc_reader", {})
-                if nfc_cfg_local.get("enabled", False):
-                    nfc_cs_local = nfc_cfg_local.get("cs")
-                    if nfc_cs_local is not None:
-                        Pin(nfc_cs_local, Pin.OUT).value(1)
+            log.info("[TFT] init stage 2/5: SPI bus managed by SPIController")
+            spi = self.spi_ctl.spi
 
             log.info("[TFT] init stage 3/5: creating DisplayManager")
             backend = self._parent_config.get("backend", {})
             cover_base_url = f"http://{backend.get('ip', '127.0.0.1')}:{backend.get('port', 8000)}"
 
             display_kwargs = {
-                "spi": spi,
+                "spi_ctl": self.spi_ctl,
                 "app_state": app_state,
                 "cs": p_cs,
                 "dc": p_dc,
@@ -177,37 +95,7 @@ class HardwareFactory:
             effective_usd = display_kwargs["usd"]
             log.debug(f"[TFT] orientation config rotate_180={cfg.get('rotate_180', None)} usd={cfg.get('usd', None)} effective_usd={effective_usd}")
 
-            # LVGL driver handles SPI speed switching internally, so pass the
-            # target baudrate and the NFC chip-select to keep deasserted.
-            if driver == "ili9488_lvgl":
-                display_kwargs["spi_baudrate"] = self._display_baudrate
-                nfc_cfg = self.config.get("nfc_reader", {})
-                if nfc_cfg.get("enabled", False):
-                    nfc_cs_pin = nfc_cfg.get("cs")
-                    if nfc_cs_pin is not None:
-                        display_kwargs["nfc_cs"] = nfc_cs_pin
-            else:
-                display_kwargs["init_spi"] = _tft_spi_init
-
-            # Refresh burst size (ili9488 only): larger split = smaller
-            # CS-asserted DMA bursts. Validate against the driver's constraints
-            # (height % split == 0, (height/split) % lines_per_write(4) == 0);
-            # fall back to 4 with a warning if the value doesn't fit.
-            if driver == "ili9488":
-                split = int(cfg.get("refresh_split", 4))
-                height = display_kwargs["height"]
-                if split != 4 and height % split == 0 and (height // split) % 4 == 0:
-                    display_kwargs["refresh_split"] = split
-                elif split != 4:
-                    log.warn(f"[TFT] refresh_split {split} invalid for height {height} (lines_per_write=4) — using 4")
-
-            # Backlight auto-off window (seconds; 0 disables) — both drivers.
-            # The manager darkens the panel when idle and gates all panel DMA
-            # while dark.
-            idle_s = int(cfg.get("backlight_idle_s", 0))
-            if idle_s > 0:
-                display_kwargs["backlight_idle_s"] = idle_s
-
+            # The SPIController handles the bus speed switching.
             display = DisplayManager(**display_kwargs)
 
             # log.info("[TFT] init stage 4/5: enabling backlight")
@@ -242,28 +130,14 @@ class HardwareFactory:
                 if tft_cs is not None:
                     Pin(tft_cs, Pin.OUT).value(1)
 
-            spi = self._get_shared_spi()
-            shared_cfg = self._shared_spi_cfg
-            if shared_cfg is None:
-                raise RuntimeError("Shared SPI config missing")
-            shared_unit = shared_cfg["spi_unit"]
             log.debug(
-                f"[NFC] shared SPI object id={id(spi)} unit={shared_unit}"
+                f"[NFC] shared SPI object id={id(self.spi_ctl.spi)} unit={self.spi_ctl._unit}"
             )
 
-            shared_kwargs = self._shared_spi_kwargs
-            if shared_kwargs is None:
-                raise RuntimeError("Shared SPI kwargs missing")
-
-            def _nfc_spi_init(spi_obj):
-                nfc_kwargs = self._get_spi_kwargs(self._nfc_baudrate)
-                spi_obj.init(**nfc_kwargs)
-
             return NFCReader(
-                spi,
+                self.spi_ctl,
                 rst_pin=cfg.get("reset", 4),
                 cs_pin=cfg.get("cs", 5),
-                spi_init=_nfc_spi_init,
             )
         except Exception as e:
             log.error(f"Failed to init physical NFC: {e}. Falling back to Dummy NFC.")

@@ -13,34 +13,21 @@ class NFCReader:
     
     def __init__(
         self,
-        spi,
+        spi_ctl,
         rst_pin=43,
         cs_pin=10,
         timeout_ms=1000,
         dummy_mode=False,
-        spi_init=None,
     ):
-        """Initialize NFC reader on separate SPI bus.
-        
-        Args:
-            spi: SPI1 (HSPI) instance (separate from display which uses SPI2/VSPI)
-            rst_pin: Reset pin
-            cs_pin: Chip Select pin
-            timeout_ms: Timeout for individual operations (default 1000ms)
-            dummy_mode: If True, don't initialize actual RC522 hardware
-        """
         self.dummy_mode = dummy_mode
         self.rdr = None
         self.cs = None
-        self.spi = spi
-        self.spi_init = spi_init
+        self.spi_ctl = spi_ctl
         
         if dummy_mode:
             log.info("[NFC] initialized in DUMMY mode (no hardware reads)")
         else:
-            if self.spi_init:
-                self.spi_init(self.spi)
-            self.rdr = rc522.MFRC522(rst_pin, cs_pin, spi)
+            self.rdr = rc522.MFRC522(rst_pin, cs_pin, spi_ctl.spi)
             self.cs = Pin(cs_pin, Pin.OUT, value=1)
             # Boot canary: prove the chip answers before the app goes live
             # (single-transaction SPI protocol; see rc522.py _rreg note).
@@ -59,9 +46,7 @@ class NFCReader:
         self.last_successful_read = 0
     
     def select_chip(self):
-        """Select the NFC chip on dedicated SPI bus."""
-        if self.spi_init:
-            self.spi_init(self.spi)
+        """Select the NFC chip on shared SPI bus."""
         self.cs.value(0)
     
     def deselect_chip(self):

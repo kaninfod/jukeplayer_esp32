@@ -155,7 +155,7 @@ class DisplayManager:
 
     def __init__(
         self,
-        spi,
+        spi_ctl,
         app_state=None,
         cs=15,
         dc=2,
@@ -167,11 +167,13 @@ class DisplayManager:
         usd=True,
         mirror=False,
         color_invert=False,
-        init_spi=None,
         cover_base_url=None,
         refresh_split=4,
         backlight_idle_s=0,
+        display_baudrate=24000000,
     ):
+        self.spi_ctl = spi_ctl
+        self._display_baudrate = display_baudrate
         self.width = width
         self.height = height
         self.app_state = app_state
@@ -202,7 +204,7 @@ class DisplayManager:
         log.info("[ILI9488] using RGB565 (65K color) driver")
 
         self.display = driver_class(
-            spi=spi,
+            spi=spi_ctl.spi,
             cs=self._as_pin(cs, Pin),
             dc=self._as_pin(dc, Pin),
             rst=self._as_pin(rst, Pin),
@@ -210,7 +212,6 @@ class DisplayManager:
             width=self.width,
             usd=usd,
             mirror=mirror,
-            init_spi=init_spi or False,
             lines_per_write=4,
         )
         # The valid do_refresh splits, computed from the driver's own
@@ -290,7 +291,11 @@ class DisplayManager:
                     return
                 if self._refresh_split != 4:
                     log.debug(f"[ILI9488] refresh split={self._refresh_split}")
-                await self.display.do_refresh(split=self._refresh_split)
+                await self.spi_ctl.acquire(self._display_baudrate)
+                try:
+                    await self.display.do_refresh(split=self._refresh_split)
+                finally:
+                    self.spi_ctl.release()
             else:
                 self.display.show()
         except asyncio.CancelledError:
