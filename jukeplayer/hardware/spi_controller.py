@@ -1,13 +1,12 @@
 # jukeplayer/hardware/spi_controller.py — SPI bus manager (2026-09-22)
 #
-# Owns the SPI peripheral shared between multiple consumers (the display,
-# the NFC reader). The bus configuration persists between operations:
-# acquire at your speed, use the bus, release. If the bus is already at
-# your speed, no reconfiguration happens. The lock ensures mutual
-# exclusion — first come, first served, no discard, no priority.
+# Owns the SPI peripheral shared between multiple consumers. Each consumer
+# specifies its own baudrate: acquire(their_speed), use the bus, release().
+# If the bus is already at the requested speed, no reconfiguration happens.
+# The lock ensures mutual exclusion — first come, first served.
 #
-# The consumers are generic: they call acquire(their_baudrate) and use
-# .spi for the transfers. The controller has no knowledge of the consumers.
+# The bus pins come from config["spi"]. The baudrates come from the
+# consumers' own config sections (tft.baudrate, nfc_reader.baudrate).
 import asyncio
 from machine import Pin, SPI
 
@@ -53,4 +52,6 @@ class SPIController:
     @property
     def spi(self):
         """The raw SPI peripheral for the current holder's transfers."""
+        if self._spi is None:
+            self._ensure(1000000)  # safe default until the first acquire
         return self._spi

@@ -91,6 +91,7 @@ class HardwareFactory:
                 "mirror": cfg.get("mirror", False),
                 "color_invert": cfg.get("color_invert", False),
                 "cover_base_url": cover_base_url,
+                "display_baudrate": int(cfg.get("baudrate", 24000000)),
             }
             effective_usd = display_kwargs["usd"]
             log.debug(f"[TFT] orientation config rotate_180={cfg.get('rotate_180', None)} usd={cfg.get('usd', None)} effective_usd={effective_usd}")
