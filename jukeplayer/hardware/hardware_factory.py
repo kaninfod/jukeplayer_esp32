@@ -7,7 +7,7 @@ class HardwareFactory:
     def __init__(self, config):
         self._parent_config = config
         self.config = config.get("hardware", {})
-        self.spi_ctl = SPIController(config)
+        self.spi_ctl = SPIController(self.config)
 
     def get_display(self, app_state):
         tft_cfg = self.config.get("tft", {})
