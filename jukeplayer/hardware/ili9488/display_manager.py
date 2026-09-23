@@ -151,7 +151,7 @@ class CoverArtDownloader:
 
 
 class DisplayManager:
-    """ILI9488 color LCD display manager aligned to the OLED/ST7735R API."""
+    """ILI9488 color LCD display manager aligned to the ST7735R API."""
 
     def __init__(
         self,
@@ -282,6 +282,10 @@ class DisplayManager:
         """
         try:
             await asyncio.sleep_ms(self._refresh_debounce_ms)
+            # Start the idle task from the loop context (the same pattern as
+            # the LED blink fix — create_task from __init__ doesn't schedule).
+            if self._backlight_idle_s > 0 and self._idle_task is None:
+                self._idle_task = asyncio.create_task(self._idle_loop())
             if hasattr(self.display, "do_refresh"):
                 # Corruption gate: while the backlight is off there is nothing
                 # to see — skip the DMA entirely (the framebuffer keeps
@@ -415,8 +419,9 @@ class DisplayManager:
         if not self.is_running:
             self.is_running = True
             log.info("[ILI9488] start()")
-            if self._backlight_idle_s > 0 and self._idle_task is None:
-                self._idle_task = asyncio.create_task(self._idle_loop())
+            # NOTE: the idle task is NOT started here — create_task from the
+            # sync __init__ context doesn't schedule (proved with the LED
+            # blink). The idle task starts from _run_refresh (loop context).
             if hasattr(self.current_screen, "set_initial_boot_state"):
                 self.current_screen.set_initial_boot_state()
                 self._schedule_refresh()

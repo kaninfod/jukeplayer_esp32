@@ -193,6 +193,7 @@ class DisplayManager:
                 break
         else:
             return  # delta contains only non-visual keys — no repaint needed
+        self._ensure_idle_task()
         if PLAYER_STATUS in state:
             playing = state[PLAYER_STATUS] == "PLAY"
             if playing and not self._backlight_on:
@@ -204,11 +205,17 @@ class DisplayManager:
     def start(self):
         if not self.is_running:
             self.is_running = True
-            if self._backlight_idle_s > 0 and self._idle_task is None:
-                self._idle_task = asyncio.create_task(self._idle_loop())
+            # NOTE: the idle task is NOT started here — create_task from the
+            # sync __init__ context doesn't schedule. It starts from update().
             if hasattr(self.current_screen, "set_initial_boot_state"):
                 self.current_screen.set_initial_boot_state()
                 self._show_current()
+
+    def _ensure_idle_task(self):
+        """Start the idle task from the loop context (called from update(),
+        which runs inside the running event loop)."""
+        if self._backlight_idle_s > 0 and self._idle_task is None:
+            self._idle_task = asyncio.create_task(self._idle_loop())
 
     def stop(self):
         self.is_running = False
