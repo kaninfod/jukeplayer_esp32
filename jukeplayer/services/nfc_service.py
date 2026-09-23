@@ -128,7 +128,7 @@ class NFCService:
             return
 
         try:
-            album_id = self.app.nfc.read_album_id()
+            album_id = await self.app.nfc.read_album_id()
             if album_id:
                 self.app.logger.info(f"[MS-READ] Card read - album_id: {album_id}")
                 await self.handle_card_scanned(album_id)

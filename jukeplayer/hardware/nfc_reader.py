@@ -18,11 +18,13 @@ class NFCReader:
         cs_pin=10,
         timeout_ms=1000,
         dummy_mode=False,
+        nfc_baudrate=4000000,
     ):
         self.dummy_mode = dummy_mode
         self.rdr = None
         self.cs = None
         self.spi_ctl = spi_ctl
+        self._nfc_baudrate = nfc_baudrate
         
         if dummy_mode:
             log.info("[NFC] initialized in DUMMY mode (no hardware reads)")
@@ -53,18 +55,25 @@ class NFCReader:
         """Deselect the NFC chip on dedicated SPI bus."""
         self.cs.value(1)
     
-    def read_album_id(self, block=4):
+    async def read_album_id(self, block=4):
         """Read album ID from NFC card block with timeout protection.
-        
+
         Args:
             block: Block number to read (default 4)
-            
+
         Returns:
             str: Album ID (e.g., 'al-138') or None if read fails or times out
         """
         if self.dummy_mode:
             return None  # Dummy mode: always return None
-        
+
+        await self.spi_ctl.acquire(self._nfc_baudrate)
+        try:
+            return self._read_album_id_sync(block)
+        finally:
+            self.spi_ctl.release()
+
+    def _read_album_id_sync(self, block=4):
         self.select_chip()
         # Field on only for the duration of the read
         self.rdr.antenna_on(True)

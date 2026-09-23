@@ -139,6 +139,7 @@ class HardwareFactory:
                 self.spi_ctl,
                 rst_pin=cfg.get("reset", 4),
                 cs_pin=cfg.get("cs", 5),
+                nfc_baudrate=int(cfg.get("baudrate", 4000000)),
             )
         except Exception as e:
             log.error(f"Failed to init physical NFC: {e}. Falling back to Dummy NFC.")
