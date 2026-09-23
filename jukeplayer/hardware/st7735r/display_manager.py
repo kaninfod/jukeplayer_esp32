@@ -188,6 +188,9 @@ class DisplayManager:
         return self.current_layout
 
     def update(self, state):
+        # Start the idle task from the loop context (before the early return —
+        # non-visual deltas also count as "the loop is running").
+        self._ensure_idle_task()
         for key in state:
             if key not in NON_VISUAL_KEYS:
                 break

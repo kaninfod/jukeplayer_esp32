@@ -398,6 +398,10 @@ class DisplayManager:
         self._schedule_refresh()
 
     def update(self, state):
+        # Start the idle task from the loop context (before the early return —
+        # non-visual deltas also count as "the loop is running").
+        if self._backlight_idle_s > 0 and self._idle_task is None:
+            self._idle_task = asyncio.create_task(self._idle_loop())
         for key in state:
             if key not in NON_VISUAL_KEYS:
                 break
