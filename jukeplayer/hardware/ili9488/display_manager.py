@@ -282,10 +282,6 @@ class DisplayManager:
         """
         try:
             await asyncio.sleep_ms(self._refresh_debounce_ms)
-            # Start the idle task from the loop context (the same pattern as
-            # the LED blink fix — create_task from __init__ doesn't schedule).
-            if self._backlight_idle_s > 0 and self._idle_task is None:
-                self._idle_task = asyncio.create_task(self._idle_loop())
             if hasattr(self.display, "do_refresh"):
                 # Corruption gate: while the backlight is off there is nothing
                 # to see — skip the DMA entirely (the framebuffer keeps
