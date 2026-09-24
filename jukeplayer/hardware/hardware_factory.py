@@ -221,3 +221,4 @@ class HardwareFactory:
             log.error(f"[BTN] init failed: {e} — falling back to dummy buttons")
             from jukeplayer.mocks.dummy_input import DummyInputController
             return DummyInputController()
+

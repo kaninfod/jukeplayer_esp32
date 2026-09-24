@@ -418,13 +418,21 @@ class DisplayManager:
         self.current_screen.update(state)
         self._schedule_refresh()
 
+    async def start_idle_task(self):
+        """Start the idle task. MUST be called from the loop context (the
+        app's run() method) — create_task from the sync __init__ context
+        doesn't schedule (proved empirically with the LED blink)."""
+        if self._backlight_idle_s > 0 and self._idle_task is None:
+            self._idle_task = asyncio.create_task(self._idle_loop())
+            log.debug("[ILI9488] idle task started from loop context")
+
     def start(self):
         if not self.is_running:
             self.is_running = True
             log.info("[ILI9488] start()")
             # NOTE: the idle task is NOT started here — create_task from the
             # sync __init__ context doesn't schedule (proved with the LED
-            # blink). The idle task starts from _run_refresh (loop context).
+            # blink). The idle task starts from start_idle_task() (async).
             if hasattr(self.current_screen, "set_initial_boot_state"):
                 self.current_screen.set_initial_boot_state()
                 self._schedule_refresh()

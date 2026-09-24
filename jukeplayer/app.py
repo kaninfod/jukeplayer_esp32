@@ -95,6 +95,13 @@ class JukeBoxApp:
         import asyncio, gc
 
         self.logger.info("[RUN] entering run loop")
+
+        # Start the display's idle task from the loop context — the async
+        # context is required for create_task to schedule (the same issue
+        # proven with the LED blink).
+        if hasattr(self.display, 'start_idle_task'):
+            await self.display.start_idle_task()
+
         self.logger.info("Waiting 3 seconds before WebSocket connection...")
         self._heap_mark("run:before_wait")
         await asyncio.sleep(3)

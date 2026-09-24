@@ -217,7 +217,17 @@ class DisplayManager:
                 self.current_screen.set_initial_boot_state()
                 self._show_current()
 
+    async def start_idle_task(self):
+        """Start the idle task. MUST be called from the loop context (the
+        app's run() method) — create_task from the sync __init__ context
+        doesn't schedule (proved empirically with the LED blink)."""
+        if self._backlight_idle_s > 0 and self._idle_task is None:
+            self._idle_task = asyncio.create_task(self._idle_loop())
+            log.debug("[TFT] idle task started from loop context")
+
     def _ensure_idle_task(self):
+        """Legacy sync path — kept for backward compatibility but unreliable
+        (the same scheduling issue). Use start_idle_task() from the app."""
         """Start the idle task from the loop context (called from update(),
         which runs inside the running event loop)."""
         if self._backlight_idle_s > 0 and self._idle_task is None:
@@ -295,8 +305,9 @@ class StatusScreen:
         if NETWORK_STATUS in state:
             self._set_net_status(state[NETWORK_STATUS])
 
-    def _set_net_status(self, status):
-        self.label_net.value(str(status).upper())
+
+    # def _set_net_status(self, status):
+    #     self.label_net.value(str(status).upper())
 
     def _set_net_status(self, status):
         status = status.upper()

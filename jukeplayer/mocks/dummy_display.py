@@ -14,4 +14,5 @@ class DummyDisplay:
     def update(self, state={}): pass
     def toggle_backlight(self): pass
     def wake(self): pass
+    async def start_idle_task(self): pass
     def show_message(self, message, duration=5): pass
