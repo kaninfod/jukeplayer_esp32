@@ -132,8 +132,11 @@ class DisplayManager:
     def _auto_backlight_tick(self):
         """Idle check: darken when not playing and untouched for the window."""
         if not self._backlight_idle_s or not self._backlight_on or self._playing:
+            log.debug(f"[TFT] idle tick skip: idle_s={self._backlight_idle_s} on={self._backlight_on} playing={self._playing}")
             return
-        if time.ticks_diff(time.ticks_ms(), self._last_interaction) < self._backlight_idle_s * 1000:
+        elapsed = time.ticks_diff(time.ticks_ms(), self._last_interaction)
+        if elapsed < self._backlight_idle_s * 1000:
+            log.debug(f"[TFT] idle tick: {elapsed // 1000}s / {self._backlight_idle_s}s")
             return
         self._set_backlight(False)
         log.info(f"[TFT] backlight auto-off (idle {self._backlight_idle_s}s)")

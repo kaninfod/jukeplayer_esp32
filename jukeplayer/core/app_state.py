@@ -54,7 +54,14 @@ class AppState:
                 try:
                     cb(state=changed)
                 except Exception as e:
+                    import sys
+                    import io
+                    buf = io.StringIO()
+                    sys.print_exception(e, buf)
                     log.error(f"[APPSTATE] error in state subscriber {cb.__name__}: {e}")
+                    for tb_line in buf.getvalue().split("\n"):
+                        if tb_line:
+                            log.error(f"[APPSTATE]   {tb_line}")
 
     def get(self, key, default=None):
         return self._state.get(key, default)
