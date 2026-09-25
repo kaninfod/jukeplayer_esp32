@@ -261,7 +261,7 @@ class StatusScreen:
         row_message = 117
 
         self.label_volume = Label(self.writer_small, top_row, 0, 30, align=ALIGN_LEFT, bdcolor=False)
-        self.label_status = Label(self.writer_symbols, top_row, max(0, safe_width - 80), 80, align=ALIGN_RIGHT, bdcolor=False)
+        self.label_status = Label(self.writer_symbols, top_row, max(0, safe_width - 100), 100, align=ALIGN_RIGHT, bdcolor=False)
         self.label_artist = Label(self.writer_large, row_artist, 0, safe_width, align=ALIGN_CENTER, bdcolor=False)
         self.label_album = Label(self.writer_small, row_album, 0, safe_width, align=ALIGN_CENTER, bdcolor=False)
         self.label_title1 = Label(self.writer_small, row_title, 0, safe_width, align=ALIGN_CENTER, bdcolor=False, fgcolor=cyan)
