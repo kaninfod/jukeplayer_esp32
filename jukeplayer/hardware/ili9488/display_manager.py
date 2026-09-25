@@ -739,7 +739,7 @@ class StatusScreen:
     def _set_net_status(self, status):
         status = status.upper()
         if status == "WS:OK":
-            self._net_icon = "\ue308"
+            self._net_icon = "\ue648"
         elif status == "WS:CON":
             self._net_icon = "\ue63e"
         else:
