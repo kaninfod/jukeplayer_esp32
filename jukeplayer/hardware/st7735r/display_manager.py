@@ -326,7 +326,7 @@ class StatusScreen:
     def _set_net_status(self, status):
         status = status.upper()
         if status == "WS:OK":
-            self._net_icon = "\ue648"
+            self._net_icon = "\ue308"
         elif status == "WS:CON":
             self._net_icon = "\ue63e"
         else:
@@ -338,7 +338,10 @@ class StatusScreen:
         self._update_status_label()
 
     def _set_mute_status(self, muted):
-        self._mute_icon = "\ue04f" if muted else ""
+        # NOTE: no unique codepoint available in the 7-glyph material_subset
+        # font. The font needs regeneration with an 8th codepoint (e.g.
+        # \\ue04f volume_off) before the mute icon can render.
+        self._mute_icon = ""
         self._update_status_label()
 
     def _update_status_label(self):
