@@ -260,9 +260,8 @@ class StatusScreen:
         row_title_2 = 101
         row_message = 117
 
-        self.label_net = Label(self.writer_symbols, top_row, 0, 64, align=ALIGN_LEFT, bdcolor=False)
-        self.label_player_status = Label(self.writer_symbols, top_row, max(0, safe_width - 63), 63, align=ALIGN_RIGHT, bdcolor=False)
-        self.label_volume = Label(self.writer_small, top_row, 65, 20, align=ALIGN_CENTER, bdcolor=False)
+        self.label_volume = Label(self.writer_small, top_row, 0, 30, align=ALIGN_LEFT, bdcolor=False)
+        self.label_status = Label(self.writer_symbols, top_row, max(0, safe_width - 80), 80, align=ALIGN_RIGHT, bdcolor=False)
         self.label_artist = Label(self.writer_large, row_artist, 0, safe_width, align=ALIGN_CENTER, bdcolor=False)
         self.label_album = Label(self.writer_small, row_album, 0, safe_width, align=ALIGN_CENTER, bdcolor=False)
         self.label_title1 = Label(self.writer_small, row_title, 0, safe_width, align=ALIGN_CENTER, bdcolor=False, fgcolor=cyan)
@@ -273,11 +272,18 @@ class StatusScreen:
         refresh(self.display, clear=True)
 
     def draw_static(self):
-        self.label_net.show()
-        self.label_player_status.show()
+        self.label_status.show()
         self.label_volume.show()
         self.label_artist.show()
         self.label_album.show()
+        self.label_title1.show()
+        self.label_title2.show()
+        # Cached icon state for the combined status label (the same pattern
+        # as the ili9488: net + player + repeat + mute, left to right).
+        self._net_icon = ""
+        self._player_icon = ""
+        self._repeat_icon = ""
+        self._mute_icon = ""
         self.label_title1.show()
         self.label_title2.show()
         self.label_message.show()
@@ -304,30 +310,56 @@ class StatusScreen:
             self._set_player_status(state[PLAYER_STATUS])
         if NETWORK_STATUS in state:
             self._set_net_status(state[NETWORK_STATUS])
+        if REPEAT_STATUS in state:
+            self._set_repeat_status(state[REPEAT_STATUS])
+        if MUTED in state:
+            self._set_mute_status(state[MUTED])
 
-
-    # def _set_net_status(self, status):
-    #     self.label_net.value(str(status).upper())
 
     def _set_net_status(self, status):
         status = status.upper()
         if status == "WS:OK":
-            self.label_net.value("\ue308")
+            self._net_icon = "\ue308"
         elif status == "WS:CON":
-            self.label_net.value("\ue63e")
+            self._net_icon = "\ue63e"
         else:
-            self.label_net.value("\ue648")
+            self._net_icon = "\ue648"
+        self._update_status_label()
 
     def _set_player_status(self, status):
         status = status.upper()
         if status == "PLAY":
-            self.label_player_status.value("\ue037")
+            self._player_icon = "\ue037"
         elif status == "STOP" or status == "BOOT":
-            self.label_player_status.value("\ue047")
+            self._player_icon = "\ue047"
         elif status == "PAUSE":
-            self.label_player_status.value("\ue034")
+            self._player_icon = "\ue034"
         else:
-            self.label_player_status.value("")   
+            self._player_icon = ""
+        self._update_status_label()
+
+    def _set_repeat_status(self, repeat):
+        self._repeat_icon = "\ue040" if repeat else ""
+        self._update_status_label()
+
+    def _set_mute_status(self, muted):
+        self._mute_icon = "\ue308" if muted else ""
+        self._update_status_label()
+
+    def _update_status_label(self):
+        self.label_status.value(self._net_icon + self._player_icon + self._repeat_icon + self._mute_icon)
+
+    def _set_player_status(self, status):
+        status = status.upper()
+        if status == "PLAY":
+            self._player_icon = "\ue037"
+        elif status == "STOP" or status == "BOOT":
+            self._player_icon = "\ue047"
+        elif status == "PAUSE":
+            self._player_icon = "\ue034"
+        else:
+            self._player_icon = ""
+        self._update_status_label()
 
     def _set_volume(self, volume):
         self.label_volume.value(f"{volume}%")
