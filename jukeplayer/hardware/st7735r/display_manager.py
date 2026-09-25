@@ -269,6 +269,13 @@ class StatusScreen:
         self.label_message = Label(self.writer_mini, row_message, 0, safe_width, align=ALIGN_CENTER, bdcolor=False)
         self.message_active = False
 
+        # Cached icon state for the combined status label (the same pattern
+        # as the ili9488: net + player + repeat + mute, left to right).
+        self._net_icon = ""
+        self._player_icon = ""
+        self._repeat_icon = ""
+        self._mute_icon = ""
+
         refresh(self.display, clear=True)
 
     def draw_static(self):
