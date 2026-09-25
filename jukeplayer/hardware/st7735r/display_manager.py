@@ -326,23 +326,11 @@ class StatusScreen:
     def _set_net_status(self, status):
         status = status.upper()
         if status == "WS:OK":
-            self._net_icon = "\ue308"
+            self._net_icon = "\ue648"
         elif status == "WS:CON":
             self._net_icon = "\ue63e"
         else:
             self._net_icon = "\ue648"
-        self._update_status_label()
-
-    def _set_player_status(self, status):
-        status = status.upper()
-        if status == "PLAY":
-            self._player_icon = "\ue037"
-        elif status == "STOP" or status == "BOOT":
-            self._player_icon = "\ue047"
-        elif status == "PAUSE":
-            self._player_icon = "\ue034"
-        else:
-            self._player_icon = ""
         self._update_status_label()
 
     def _set_repeat_status(self, repeat):
@@ -350,11 +338,11 @@ class StatusScreen:
         self._update_status_label()
 
     def _set_mute_status(self, muted):
-        self._mute_icon = "\ue308" if muted else ""
+        self._mute_icon = "\ue04f" if muted else ""
         self._update_status_label()
 
     def _update_status_label(self):
-        self.label_status.value(self._net_icon + self._player_icon + self._repeat_icon + self._mute_icon)
+        self.label_status.value(self._repeat_icon + self._mute_icon + self._player_icon + self._net_icon)
 
     def _set_player_status(self, status):
         status = status.upper()
