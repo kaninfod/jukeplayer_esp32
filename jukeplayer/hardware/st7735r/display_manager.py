@@ -338,10 +338,6 @@ class StatusScreen:
         self._update_status_label()
 
     def _set_mute_status(self, muted):
-        # NOTE: no unique codepoint available in the 7-glyph material_subset
-        # font. The font needs regeneration with an 8th codepoint (e.g.
-        # \\ue04f volume_off) before the mute icon can render.
-        self._mute_icon = ""
         self._update_status_label()
 
     def _update_status_label(self):

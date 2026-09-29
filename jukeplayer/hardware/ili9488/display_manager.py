@@ -277,8 +277,17 @@ class DisplayManager:
         self._refresh_task = asyncio.create_task(self._run_refresh())
 
     async def _run_refresh(self):
-        """Wait a short debounce, then refresh the display using the async
-        segment-based refresh so other tasks can run during SPI transfer.
+        """Wait a short debounce, then push the full frame in ONE synchronous
+        SPI write while holding the bus lock.
+
+        2026-09-29: the async segment refresh (do_refresh with per-segment
+        yields) crashed the uasyncio poller on every WS handshake when the
+        refresh task state interleaved with socket IO ("ValueError: too many
+        values to unpack" in wait_io_event — deterministic, reproduced on two
+        different backends at every baudrate and split). The st7735r has run
+        the sync-push pattern stable for months. Cost: the loop blocks
+        ~100-150ms per refresh; pings arrive every 20s so the block is
+        invisible. refresh_split is now ignored (config key kept).
         """
         try:
             await asyncio.sleep_ms(self._refresh_debounce_ms)
@@ -289,11 +298,10 @@ class DisplayManager:
                 if not self._backlight_on:
                     log.debug("[ILI9488] refresh skipped — backlight off")
                     return
-                if self._refresh_split != 4:
-                    log.debug(f"[ILI9488] refresh split={self._refresh_split}")
                 await self.spi_ctl.acquire(self._display_baudrate)
                 try:
-                    await self.display.do_refresh(split=self._refresh_split)
+                    self.display.show()
+                    log.debug("[ILI9488] full-frame sync push")
                 finally:
                     self.spi_ctl.release()
             else:
