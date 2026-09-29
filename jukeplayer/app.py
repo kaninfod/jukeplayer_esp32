@@ -5,6 +5,7 @@ from jukeplayer.core.ws_events import AsyncWebsocketClient
 from jukeplayer.services.ws_service import  WSService
 from jukeplayer.services.hardware_service import HardwareService
 import asyncio
+import time
 from jukeplayer.core.app_state import AppState
 
 __version__ = "FILESYSTEM_v1"  # Change to "FILESYSTEM_v1" in your device copy
@@ -51,18 +52,29 @@ class JukeBoxApp:
 
         self.state = AppState()
         self.nfc = factory.get_nfc()
+        log.info("[BOOT] stage 4/6: nfc ok")
+        log.flush_now()
+        time.sleep_ms(400)  # SPI settle before the next hardware domain
+
         self.pushbuttons = factory.get_pushbuttons()
         self.hw_service.assign_button_handlers()
+        log.info("[BOOT] stage 4/6: buttons ok")
+        log.flush_now()
 
         self.display = factory.get_display(app_state=self.state)
         self.display.start()
         log.info("[RUN] display started")
+        log.info("[BOOT] stage 4/6: display ok (initial push done)")
+        log.flush_now()
+        time.sleep_ms(1200)  # SPI/PSRAM settle before the radio work begins
 
         self.encoder = factory.get_encoder()
         # IRQ-safe bridge: the rotary IRQ only sets a ThreadSafeFlag; the
         # encoder task (running in loop context) does the real work.
         self.encoder.add_listener(self.hw_service.encoder_flag_set)
         self.hw_service.start_encoder_task()
+        log.info("[BOOT] stage 4/6: hardware ok (nfc+buttons+display+encoder)")
+        log.flush_now()
         
         self.debounce_task = None
 
@@ -113,6 +125,8 @@ class JukeBoxApp:
         ws_task = asyncio.create_task(self._websocket_loop())
         telemetry_task = asyncio.create_task(self._telemetry_loop())
         log.info("[RUN] tasks started: ws + telemetry")
+        log.info("[BOOT] stage 5/6: network tasks running (ws handshake follows)")
+        log.flush_now()
 
         # Hardware watchdog, config-gated: armed only after the event loop is
         # running (the boot's blocking WiFi/NTP phase is exempt). A total

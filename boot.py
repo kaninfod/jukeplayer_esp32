@@ -111,12 +111,27 @@ def load_config():
                 log.error(f"[CFG] config.json.bak also failed: {e2}")
         return None
 
+def _stage(n, total, name, detail=""):
+    """Stage boundary marker, flushed to syslog immediately.
+
+    2026-09-29 staged-boot design: the syslog boot buffer is lost when a
+    hard reset kills the device mid-boot, so every stage boundary is
+    flushed synchronously — a mid-boot death leaves the flushed trail in
+    Loki and the death lands between two stage lines, pinpointed.
+    """
+    msg = f"[BOOT] stage {n}/{total}: {name} ok"
+    if detail:
+        msg += f" ({detail})"
+    log.info(msg)
+    log.flush_now()
+
 def boot_sequence():
     log.info("[BOOT] === JukePlayer boot sequence started ===")
-    
+
     config = load_config()
     if not config:
         log.error("[BOOT] halting — missing or invalid config.json")
+        log.flush_now()
         while True:
             time.sleep(1)
 
@@ -127,6 +142,7 @@ def boot_sequence():
     # only captures post-configuration lines, so a pre-config call loses the
     # [CRASH] lines on every boot replay.
     _boot_forensics()
+    _stage(1, 6, "config+forensics", config.get("client", {}).get("name", "?"))
 
     wifi_cfg = config.get("wifi", {})
     ssid = wifi_cfg.get("ssid")
@@ -146,6 +162,7 @@ def boot_sequence():
 
     # Network is up: start flushing buffered syslog messages (boot log replay)
     log.mark_syslog_online()
+    _stage(2, 6, "wifi", f"ip={ip}")
 
     # 2. Sync NTP Time
     log.info("[NTP] attempting time sync...")
@@ -154,6 +171,7 @@ def boot_sequence():
     # behind the real clock despite "synced successfully" — settle whether
     # ntptime.settime() actually reaches time.time() on this build.
     log.info(f"[NTP] device epoch after sync: {int(time.time())}")
+    _stage(3, 6, "ntp", f"epoch={int(time.time())}")
 
     # 3. Start WebREPL if enabled
     webrepl_cfg = config.get("webrepl", {})
