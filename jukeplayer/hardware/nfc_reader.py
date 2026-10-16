@@ -43,6 +43,11 @@ class NFCReader:
             self.rdr.antenna_on(False)
         
         self.default_key = [0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF]
+        # Cards once formatted by a phone / Home Assistant carry the NFC Forum
+        # MIFARE Classic NDEF mapping key (NXP AN1305) instead of the factory
+        # key - try both, factory first, so such cards recover in place.
+        self.ndef_format_key = [0xA0, 0xA1, 0xA2, 0xA3, 0xA4, 0xA5]
+        self.auth_keys = [self.default_key, self.ndef_format_key]
         self.timeout_ms = timeout_ms
         self.last_read_time = 0
         self.last_successful_read = 0
@@ -134,15 +139,24 @@ class NFCReader:
                 log.warn(f"[NFC] read timeout at auth")
                 return None
             
-            # Authenticate with default Mifare Classic key
-            try:
-                auth_stat = self.rdr.auth(self.rdr.AUTHENT1A, block, self.default_key, raw_uid)
-            except Exception as e:
-                log.error(f"[NFC] auth error: {e}")
-                return None
-            
+            # Authenticate - factory key first, then the NDEF-format key
+            auth_stat = self.rdr.ERR
+            for key_idx, key in enumerate(self.auth_keys):
+                try:
+                    auth_stat = self.rdr.auth(self.rdr.AUTHENT1A, block, key, raw_uid)
+                except Exception as e:
+                    log.error(f"[NFC] auth error: {e}")
+                    return None
+
+                if auth_stat == self.rdr.OK:
+                    if key_idx:
+                        log.info(f"[NFC] recovered card: auth via NDEF key")
+                    break
+
+                self.rdr.stop_crypto1()
+
             if auth_stat != self.rdr.OK:
-                log.warn(f"[NFC] auth failed with status {auth_stat}")
+                log.warn(f"[NFC] auth failed with status {auth_stat} - no known key opens this card")
                 return None
             
             elapsed = time.ticks_diff(time.ticks_ms(), start_time)
@@ -276,15 +290,24 @@ class NFCReader:
             if elapsed > timeout_ms:
                 return {"status": "timeout", "uid": uid_hex, "error_message": "Write timeout: authentication"}
             
-            # Authenticate with block
-            try:
-                auth_stat = self.rdr.auth(self.rdr.AUTHENT1A, block, self.default_key, raw_uid)
-            except Exception as e:
-                log.error(f"[NFC] auth error: {e}")
-                return {"status": "error", "uid": uid_hex, "error_message": f"Authentication failed: {e}"}
-            
+            # Authenticate - factory key first, then the NDEF-format key
+            auth_stat = self.rdr.ERR
+            for key_idx, key in enumerate(self.auth_keys):
+                try:
+                    auth_stat = self.rdr.auth(self.rdr.AUTHENT1A, block, key, raw_uid)
+                except Exception as e:
+                    log.error(f"[NFC] auth error: {e}")
+                    return {"status": "error", "uid": uid_hex, "error_message": f"Authentication failed: {e}"}
+
+                if auth_stat == self.rdr.OK:
+                    if key_idx:
+                        log.info(f"[NFC] recovered card: auth via NDEF key")
+                    break
+
+                self.rdr.stop_crypto1()
+
             if auth_stat != self.rdr.OK:
-                return {"status": "error", "uid": uid_hex, "error_message": f"Authentication failed (status {auth_stat})"}
+                return {"status": "error", "uid": uid_hex, "error_message": f"Authentication failed (status {auth_stat}) - no known key"}
             
             # Check timeout
             elapsed = time.ticks_diff(time.ticks_ms(), start_time)
