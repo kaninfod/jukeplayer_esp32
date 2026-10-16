@@ -174,10 +174,10 @@ class NFCReader:
                         auth_stat = self.rdr.ERR
                         break
                 if not reselected:
-                    log.warn(f"[NFC] could not re-select card after failed auth (key {key_idx})")
+                    log.warn(f"[NFC] could not re-select card after failed auth (key {key_idx + 1})")
                     auth_stat = self.rdr.ERR
                 else:
-                    log.info(f"[NFC] re-selected card OK - re-authing with key #{key_idx + 1}")
+                    log.info(f"[NFC] re-selected card OK - re-authing with key #{key_idx + 2}")
                     break
 
             if auth_stat != self.rdr.OK:
@@ -350,10 +350,10 @@ class NFCReader:
                         auth_stat = self.rdr.ERR
                         break
                 if not reselected:
-                    log.warn(f"[NFC] could not re-select card after failed auth (key {key_idx})")
+                    log.warn(f"[NFC] could not re-select card after failed auth (key {key_idx + 1})")
                     auth_stat = self.rdr.ERR
                 else:
-                    log.info(f"[NFC] re-selected card OK - re-authing with key #{key_idx + 1}")
+                    log.info(f"[NFC] re-selected card OK - re-authing with key #{key_idx + 2}")
                     break
 
             if auth_stat != self.rdr.OK:
