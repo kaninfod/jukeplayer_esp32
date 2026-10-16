@@ -154,6 +154,29 @@ class NFCReader:
                     break
 
                 self.rdr.stop_crypto1()
+                # A failed MIFARE auth desynchronises the session: the reader
+                # must re-request/anticoll/SELECT the card before the next key
+                # attempt, otherwise every retry fails ERR regardless of key.
+                reselected = False
+                for wake in (self.rdr.REQIDL, self.rdr.REQALL):
+                    try:
+                        (req_stat, _t) = self.rdr.request(wake)
+                        if req_stat != self.rdr.OK:
+                            continue
+                        (req_stat, raw_uid) = self.rdr.anticoll()
+                        if req_stat != self.rdr.OK:
+                            continue
+                        if self.rdr.select_tag(raw_uid) == self.rdr.OK:
+                            reselected = True
+                            break
+                    except Exception as e:
+                        log.error(f"[NFC] re-select error: {e}")
+                        auth_stat = self.rdr.ERR
+                        break
+                if not reselected:
+                    log.warn(f"[NFC] could not re-select card after failed auth (key {key_idx})")
+                    auth_stat = self.rdr.ERR
+                    break
 
             if auth_stat != self.rdr.OK:
                 log.warn(f"[NFC] auth failed with status {auth_stat} - no known key opens this card")
@@ -305,6 +328,29 @@ class NFCReader:
                     break
 
                 self.rdr.stop_crypto1()
+                # A failed MIFARE auth desynchronises the session: the reader
+                # must re-request/anticoll/SELECT the card before the next key
+                # attempt, otherwise every retry fails ERR regardless of key.
+                reselected = False
+                for wake in (self.rdr.REQIDL, self.rdr.REQALL):
+                    try:
+                        (req_stat, _t) = self.rdr.request(wake)
+                        if req_stat != self.rdr.OK:
+                            continue
+                        (req_stat, raw_uid) = self.rdr.anticoll()
+                        if req_stat != self.rdr.OK:
+                            continue
+                        if self.rdr.select_tag(raw_uid) == self.rdr.OK:
+                            reselected = True
+                            break
+                    except Exception as e:
+                        log.error(f"[NFC] re-select error: {e}")
+                        auth_stat = self.rdr.ERR
+                        break
+                if not reselected:
+                    log.warn(f"[NFC] could not re-select card after failed auth (key {key_idx})")
+                    auth_stat = self.rdr.ERR
+                    break
 
             if auth_stat != self.rdr.OK:
                 return {"status": "error", "uid": uid_hex, "error_message": f"Authentication failed (status {auth_stat}) - no known key"}
