@@ -49,6 +49,7 @@ class ButtonHandler:
 
         # Specific handlers
         self._register("nfc_card", self._handle_nfc_card)
+        self._register(("play_pause", "long"), self._handle_play_pause_long)
         self._register(("stop", "long"), self._handle_stop_long)
         self._register(("utility_button", "long"), self._handle_volume_mute)
         self._register(("utility_button", "double"), self._handle_repeat_toggle)
@@ -110,6 +111,42 @@ class ButtonHandler:
             # Then show the overlay without waiting for the screen refresh.
             self.app.display.show_message(f"{label} pressed", duration=2)
         return _sender
+
+    async def _handle_play_pause_long(self):
+        """Long press play/pause: ask the backend for a smart-random album.
+
+        The backend accepts either the speaker name (device_name) or the
+        requesting client's id; we prefer the explicit speaker so the pick
+        lands on the room this panel is attached to.
+        """
+        device_id = self.app.state.get(DEVICE_ID) or ""
+        if not device_id:
+            device_id = (self.app.config.get("client", {}) or {}).get("device_id") or ""
+        if not device_id:
+            self.app.logger.warn("[BTN] random play: no device_id configured")
+            self.app.display.show_message("Random play: no speaker", duration=4)
+            return
+
+        ws = getattr(self.app, "ws", None)
+        try:
+            connected = await ws.open() if ws is not None else False
+        except Exception:
+            connected = False
+        if not connected:
+            self.app.logger.warn("[BTN] random play: WebSocket not connected")
+            self.app.display.show_message("Random play: not connected", duration=4)
+            return
+
+        try:
+            await ws.send(json.dumps({
+                "type": "play_random",
+                "payload": {"device_name": device_id},
+            }))
+            self.app.logger.info(f"[WS] command sent: play_random (speaker: {device_id})")
+            self.app.display.show_message("Random play...", duration=3)
+        except Exception as e:
+            self.app.logger.error(f"[BTN] random play send failed: {e}")
+            self.app.display.show_message("Random play failed", duration=4)
 
     async def _handle_nfc_card(self):
         from jukeplayer.services.nfc_service import NFCService

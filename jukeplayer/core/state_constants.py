@@ -17,6 +17,7 @@ LAST_NFC_SCAN = 16
 WS_CONNECTED = 18
 COVER_URL = 19
 MUTED = 20
+DEVICE_ID = 21  # speaker/device name sent to the backend as device_name
 
 # Keys no display renders — AppState deltas containing only these skip
 # display repaints entirely
@@ -27,4 +28,5 @@ NON_VISUAL_KEYS = {
     NFC_WRITE_STATE,
     NFC_ENCODING_ALBUM_ID,
     LAST_NFC_SCAN,
+    DEVICE_ID,
 }

@@ -50,7 +50,9 @@ class JukeBoxApp:
 
         self.hw_service = HardwareService(self)
 
-        self.state = AppState()
+        self.state = AppState({
+            DEVICE_ID: (self.config.get("client") or {}).get("device_id") or "",
+        })
         self.nfc = factory.get_nfc()
         log.info("[BOOT] stage 4/6: nfc ok")
         log.flush_now()

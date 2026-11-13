@@ -22,7 +22,8 @@ class AppState:
             LAST_NFC_SCAN: "",
             WS_CONNECTED: False,
             COVER_URL: "",
-            MUTED: False
+            MUTED: False,
+            DEVICE_ID: ""
         }
         if initial_state:
             self._state.update(initial_state)

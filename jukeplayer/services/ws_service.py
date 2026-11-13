@@ -112,7 +112,31 @@ class WSService:
             self.app.state.set({MUTED: bool(mute_status)})
 
     async def handle_notification(self, payload):
-        pass
+        """Backend notices. The play_random failure path sends one of these."""
+        message = payload.get("message") or payload.get("status") or ""
+        if not message:
+            return
+        if payload.get("status") == "error":
+            self.app.logger.warn(f"[WS] notification error: {message}")
+            self.app.display.show_message(f"Error: {message}", duration=6)
+        else:
+            self.app.logger.info(f"[WS] notification: {message}")
+            self.app.display.show_message(str(message), duration=4)
+
+    async def handle_random_pick(self, payload):
+        """Smart-random pick. current_track carries the state; this is the echo."""
+        artist = str(payload.get("artist") or "").strip()
+        album = str(payload.get("album") or "").strip()
+        speaker = str(payload.get("speaker") or "").strip()
+        reason = str(payload.get("reason") or "").strip()
+        if artist and album:
+            label = f"{artist} — {album}"
+        else:
+            label = album or artist or "Random pick"
+        self.app.logger.info(
+            f"[PLAY] random pick: {label} (speaker: {speaker or '?'}; {reason or 'no reason'})"
+        )
+        self.app.display.show_message(label, duration=8)
 
     async def handle_toggle_repeat_changed(self, payload):
         repeat_status = payload.get('mode')
